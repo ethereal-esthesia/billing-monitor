@@ -5,6 +5,8 @@ current account usage from the locally installed Codex app server and displays
 it as a transparent, borderless pie divided into one equal section per day in
 the current usage window.
 
+![Usage Pie widget and native settings editor](docs/usage-pie-preview.png)
+
 ## Features
 
 - Native macOS interface built with Swift and AppKit
