@@ -116,4 +116,3 @@ private func renderIcon(pixels: Int, to destination: URL) throws {
     }
     try png.write(to: destination, options: .atomic)
 }
-

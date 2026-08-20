@@ -25,4 +25,3 @@ hdiutil create \
   "$installer"
 
 echo "$installer"
-
