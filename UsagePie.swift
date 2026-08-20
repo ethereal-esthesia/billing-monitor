@@ -111,6 +111,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var statusItem: NSStatusItem!
     private var statusMenu: NSMenu!
     private var contextMenu: NSMenu!
+    private var settingsPanel: NSPanel?
+    private var opacityField: NSTextField!
+    private var pollIntervalField: NSTextField!
+    private var fillColorField: NSTextField!
+    private var fillColorWell: NSColorWell!
     private let pieView = PieView(frame: NSRect(x: 0, y: 0, width: 210, height: 210))
     private var settings = WidgetSettings()
     private var pollTimer: Timer?
@@ -219,8 +224,140 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func openSettings() {
-        guard let url = editableSettingsURL() else { return }
-        NSWorkspace.shared.open(url)
+        if settingsPanel == nil {
+            settingsPanel = makeSettingsPanel()
+        }
+        populateSettingsFields()
+        NSApp.activate(ignoringOtherApps: true)
+        settingsPanel?.center()
+        settingsPanel?.makeKeyAndOrderFront(nil)
+    }
+
+    private func makeSettingsPanel() -> NSPanel {
+        let editor = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 250),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        editor.title = "Usage Pie Settings"
+        editor.isReleasedWhenClosed = false
+        editor.level = .floating
+
+        let content = editor.contentView!
+        let title = NSTextField(labelWithString: "Appearance & Updates")
+        title.frame = NSRect(x: 24, y: 204, width: 370, height: 24)
+        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        content.addSubview(title)
+
+        let detail = NSTextField(labelWithString: "Changes apply immediately when you save.")
+        detail.frame = NSRect(x: 24, y: 182, width: 370, height: 18)
+        detail.textColor = .secondaryLabelColor
+        content.addSubview(detail)
+
+        addSettingsLabel("Opacity", y: 140, to: content)
+        opacityField = NSTextField(frame: NSRect(x: 170, y: 136, width: 150, height: 26))
+        opacityField.placeholderString = "30"
+        content.addSubview(opacityField)
+        let percentSuffix = NSTextField(labelWithString: "%")
+        percentSuffix.frame = NSRect(x: 328, y: 140, width: 44, height: 20)
+        percentSuffix.textColor = .secondaryLabelColor
+        content.addSubview(percentSuffix)
+
+        addSettingsLabel("Polling interval", y: 100, to: content)
+        pollIntervalField = NSTextField(frame: NSRect(x: 170, y: 96, width: 150, height: 26))
+        pollIntervalField.placeholderString = "300"
+        content.addSubview(pollIntervalField)
+        let secondsSuffix = NSTextField(labelWithString: "seconds")
+        secondsSuffix.frame = NSRect(x: 328, y: 100, width: 68, height: 20)
+        secondsSuffix.textColor = .secondaryLabelColor
+        content.addSubview(secondsSuffix)
+
+        addSettingsLabel("Fill color", y: 60, to: content)
+        fillColorField = NSTextField(frame: NSRect(x: 170, y: 56, width: 150, height: 26))
+        fillColorField.placeholderString = "#C1E9F2"
+        content.addSubview(fillColorField)
+        fillColorWell = NSColorWell(frame: NSRect(x: 328, y: 55, width: 48, height: 28))
+        fillColorWell.target = self
+        fillColorWell.action = #selector(colorWellChanged)
+        content.addSubview(fillColorWell)
+
+        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelSettings))
+        cancel.frame = NSRect(x: 238, y: 14, width: 78, height: 30)
+        cancel.keyEquivalent = "\u{1b}"
+        content.addSubview(cancel)
+
+        let save = NSButton(title: "Save", target: self, action: #selector(saveSettings))
+        save.frame = NSRect(x: 322, y: 14, width: 78, height: 30)
+        save.keyEquivalent = "\r"
+        save.bezelStyle = .rounded
+        content.addSubview(save)
+
+        return editor
+    }
+
+    private func addSettingsLabel(_ text: String, y: CGFloat, to view: NSView) {
+        let label = NSTextField(labelWithString: text)
+        label.frame = NSRect(x: 24, y: y, width: 135, height: 20)
+        label.alignment = .right
+        view.addSubview(label)
+    }
+
+    private func populateSettingsFields() {
+        opacityField.stringValue = String(Int((settings.opacity * 100).rounded()))
+        pollIntervalField.stringValue = String(Int(settings.pollIntervalSeconds.rounded()))
+        fillColorWell.color = settings.fillColor
+        fillColorField.stringValue = hexString(from: settings.fillColor)
+    }
+
+    @objc private func colorWellChanged() {
+        fillColorField.stringValue = hexString(from: fillColorWell.color)
+    }
+
+    @objc private func cancelSettings() {
+        settingsPanel?.orderOut(nil)
+    }
+
+    @objc private func saveSettings() {
+        guard let opacityPercent = Double(opacityField.stringValue),
+              (5...100).contains(opacityPercent) else {
+            presentError(title: "Invalid opacity", message: "Enter a value from 5 through 100 percent.")
+            return
+        }
+        guard let pollSeconds = Double(pollIntervalField.stringValue), pollSeconds >= 15 else {
+            presentError(title: "Invalid polling interval", message: "Enter 15 seconds or longer.")
+            return
+        }
+        guard let fillColor = color(fromHex: fillColorField.stringValue) else {
+            presentError(title: "Invalid fill color", message: "Use #RRGGBB or #RRGGBBAA format.")
+            return
+        }
+        guard let destination = editableSettingsURL() else { return }
+
+        let opacity = opacityPercent / 100
+        let payload: [String: Any] = [
+            "opacity": NSDecimalNumber(string: String(format: "%.2f", opacity)),
+            "pollIntervalSeconds": pollSeconds,
+            "fillColor": hexString(from: fillColor),
+        ]
+
+        do {
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            var data = try JSONSerialization.data(withJSONObject: payload,
+                                                  options: [.prettyPrinted, .sortedKeys])
+            data.append(0x0A)
+            try data.write(to: destination, options: .atomic)
+            settings = WidgetSettings(opacity: opacity,
+                                      pollIntervalSeconds: pollSeconds,
+                                      fillColor: fillColor)
+            panel.alphaValue = settings.opacity
+            pieView.fillColor = settings.fillColor
+            schedulePolling()
+            settingsPanel?.orderOut(nil)
+        } catch {
+            presentError(title: "Couldn’t save settings", message: error.localizedDescription)
+        }
     }
 
     @objc private func toggleWidget() {
@@ -363,6 +500,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let blue = CGFloat((number >> (hasAlpha ? 8 : 0)) & 0xFF) / 255
         let alpha = hasAlpha ? CGFloat(number & 0xFF) / 255 : 1
         return NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+    }
+
+    private func hexString(from color: NSColor) -> String {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return "#C1E9F2" }
+        let red = Int((srgb.redComponent * 255).rounded())
+        let green = Int((srgb.greenComponent * 255).rounded())
+        let blue = Int((srgb.blueComponent * 255).rounded())
+        let alpha = Int((srgb.alphaComponent * 255).rounded())
+        if alpha < 255 {
+            return String(format: "#%02X%02X%02X%02X", red, green, blue, alpha)
+        }
+        return String(format: "#%02X%02X%02X", red, green, blue)
     }
 
     private func settingsURL() -> URL? {

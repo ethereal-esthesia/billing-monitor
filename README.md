@@ -60,24 +60,28 @@ To retrieve the same usage information as JSON without opening the widget:
 
 ## Settings
 
-Edit [`usage-pie.settings.json`](usage-pie.settings.json):
+Choose **Settings…** from either the menu-bar icon or the pie’s right-click
+menu to open the lightweight settings editor. It provides fields for opacity,
+polling interval, and fill color; changes apply as soon as you click **Save**.
+
+The editor stores these values in JSON:
 
 ```json
 {
-  "opacity": 0.30,
+  "opacity": 0.70,
   "pollIntervalSeconds": 300,
   "fillColor": "#C1E9F2"
 }
 ```
 
-- `opacity` accepts values from `0.05` through `1.0`.
+- The editor’s opacity field accepts `5` through `100` percent; JSON stores
+  the equivalent value from `0.05` through `1.0`.
 - `pollIntervalSeconds` controls how often usage is checked and has a minimum
   value of 15 seconds.
 - `fillColor` accepts a CSS-style `#RRGGBB` or `#RRGGBBAA` hex color.
 
-Choose **Settings…** from either the menu-bar icon or the pie’s right-click
-menu to open the active configuration. After editing, choose
-**Reload Settings**, or relaunch the app.
+You can still edit [`usage-pie.settings.json`](usage-pie.settings.json)
+directly. After a manual edit, choose **Reload Settings**, or relaunch the app.
 
 When the installed app creates a personal configuration, it stores it at
 `~/Library/Application Support/Usage Pie/usage-pie.settings.json`.
