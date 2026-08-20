@@ -7,6 +7,8 @@
     <string>UsagePie</string>
     <key>CFBundleIdentifier</key>
     <string>local.billing-monitor.usage-pie</string>
+    <key>CFBundleIconFile</key>
+    <string>UsagePie</string>
     <key>CFBundleName</key>
     <string>Usage Pie</string>
     <key>CFBundlePackageType</key>
@@ -15,7 +17,11 @@
     <string>1.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Shane Reilly. GPL-3.0-or-later.</string>
 </dict>
 </plist>
