@@ -16,7 +16,8 @@ the current usage window.
 - Divide the usage window into equal daily sections
 - Show current usage percentage and window duration in the pie
 - Keep the reset date in the menu and menu-bar hover statistics
-- Poll automatically at a configurable interval
+- Poll automatically at a configurable interval while the widget is visible
+- Refresh stale usage when the menu-bar icon is hovered or opened
 - Matching menus from the menu bar or a right-click on the pie
 - Open settings, show or hide the pie, and run automatically at login
 - Custom app icon and drag-to-Applications DMG installer
@@ -79,7 +80,9 @@ The editor stores these values in JSON:
 - The editor’s opacity field accepts `5` through `100` percent; JSON stores
   the equivalent value from `0.05` through `1.0`.
 - `pollIntervalSeconds` controls how often usage is checked and has a minimum
-  value of 15 seconds.
+  value of 60 seconds. Automatic polling pauses while the widget is hidden;
+  hovering or opening the menu-bar icon refreshes data once this interval has
+  elapsed since the previous refresh.
 - `fillColor` accepts a CSS-style `#RRGGBB` or `#RRGGBBAA` hex color.
 
 You can still edit [`usage-pie.settings.json`](usage-pie.settings.json)

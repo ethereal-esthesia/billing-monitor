@@ -13,6 +13,8 @@ private struct UsageSnapshot {
 }
 
 private struct WidgetSettings {
+    static let minimumPollInterval: TimeInterval = 60
+
     var opacity: CGFloat = 0.30
     var pollIntervalSeconds: TimeInterval = 300
     var fillColor = NSColor(srgbRed: 193 / 255, green: 233 / 255, blue: 242 / 255, alpha: 1)
@@ -119,6 +121,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private let pieView = PieView(frame: NSRect(x: 0, y: 0, width: 210, height: 210))
     private var settings = WidgetSettings()
     private var pollTimer: Timer?
+    private var lastRefreshAt: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -173,6 +176,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             button.imagePosition = .imageOnly
             button.toolTip = usageToolTip(for: pieView.snapshot)
             button.setAccessibilityLabel("Usage Pie")
+            button.addTrackingArea(NSTrackingArea(rect: button.bounds,
+                                                  options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                                  owner: self,
+                                                  userInfo: nil))
         }
     }
 
@@ -202,6 +209,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        if menu === statusMenu {
+            refreshUsageIfStale()
+        }
         if let summary = menu.item(withTag: 100) {
             summary.title = menuSummary(for: pieView.snapshot)
         }
@@ -324,8 +334,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             presentError(title: "Invalid opacity", message: "Enter a value from 5 through 100 percent.")
             return
         }
-        guard let pollSeconds = Double(pollIntervalField.stringValue), pollSeconds >= 15 else {
-            presentError(title: "Invalid polling interval", message: "Enter 15 seconds or longer.")
+        guard let pollSeconds = Double(pollIntervalField.stringValue),
+              pollSeconds >= WidgetSettings.minimumPollInterval else {
+            presentError(title: "Invalid polling interval", message: "Enter 60 seconds or longer.")
             return
         }
         guard let fillColor = color(fromHex: fillColorField.stringValue) else {
@@ -363,8 +374,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     @objc private func toggleWidget() {
         if panel.isVisible {
             panel.orderOut(nil)
+            stopPolling()
         } else {
             panel.orderFrontRegardless()
+            refreshUsageIfStale()
+            schedulePolling()
         }
     }
 
@@ -386,10 +400,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func schedulePolling() {
-        pollTimer?.invalidate()
+        stopPolling()
+        guard panel.isVisible else { return }
+
         pollTimer = Timer.scheduledTimer(timeInterval: settings.pollIntervalSeconds,
                                          target: self,
-                                         selector: #selector(refreshUsage),
+                                         selector: #selector(refreshUsageIfStale),
                                          userInfo: nil,
                                          repeats: true)
         if let pollTimer {
@@ -397,7 +413,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
     }
 
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    @objc private func mouseEntered(with event: NSEvent) {
+        refreshUsageIfStale()
+    }
+
+    @objc private func refreshUsageIfStale() {
+        guard lastRefreshAt.map({ Date().timeIntervalSince($0) >= settings.pollIntervalSeconds }) ?? true else {
+            return
+        }
+        refreshUsage()
+    }
+
     @objc private func refreshUsage() {
+        lastRefreshAt = Date()
         let previous = pieView.snapshot
         pieView.snapshot = UsageSnapshot(usedPercent: previous.usedPercent,
                                          remainingPercent: previous.remainingPercent,
@@ -482,7 +515,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
 
         let opacity = min(1, max(0.05, json["opacity"] as? Double ?? 0.30))
-        let pollSeconds = max(15, json["pollIntervalSeconds"] as? Double ?? 300)
+        let pollSeconds = max(WidgetSettings.minimumPollInterval,
+                              json["pollIntervalSeconds"] as? Double ?? 300)
         let fillColor = color(fromHex: json["fillColor"] as? String) ?? WidgetSettings().fillColor
         return WidgetSettings(opacity: opacity, pollIntervalSeconds: pollSeconds,
                               fillColor: fillColor)
