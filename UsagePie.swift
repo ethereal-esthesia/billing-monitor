@@ -177,7 +177,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var fillColorWell: NSColorWell!
     private var topUpBalanceLabel: NSTextField!
     private var topUpBalanceField: NSTextField!
-    private var topUpBalanceSuffix: NSTextField!
     private let pieView = PieView(frame: NSRect(x: 0, y: 0, width: 210, height: 210))
     private var settings = WidgetSettings()
     private var currentSource = UsageSource(rawValue: UserDefaults.standard.string(forKey: "usageSource") ?? "") ?? .codex
@@ -392,10 +391,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         topUpBalanceField = NSTextField(frame: NSRect(x: 170, y: 56, width: 150, height: 26))
         topUpBalanceField.placeholderString = "2.00"
         content.addSubview(topUpBalanceField)
-        topUpBalanceSuffix = NSTextField(labelWithString: "starting balance")
-        topUpBalanceSuffix.frame = NSRect(x: 324, y: 60, width: 94, height: 20)
-        topUpBalanceSuffix.textColor = .secondaryLabelColor
-        content.addSubview(topUpBalanceSuffix)
 
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelSettings))
         cancel.frame = NSRect(x: 238, y: 14, width: 78, height: 30)
@@ -427,7 +422,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let showTopUpBalance = currentSource == .deepseek
         topUpBalanceLabel.isHidden = !showTopUpBalance
         topUpBalanceField.isHidden = !showTopUpBalance
-        topUpBalanceSuffix.isHidden = !showTopUpBalance
     }
 
     @objc private func colorWellChanged() {
