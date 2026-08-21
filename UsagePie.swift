@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import Security
 import ServiceManagement
 
 private enum UsageSource: String, CaseIterable {
@@ -599,6 +600,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 environment["CODEX_BIN"] = bundledCodex
             }
         }
+        if currentSource == .infra, environment["DEEPINFRA_TOKEN"] == nil,
+           let token = keychainPassword(service: "deepinfra-api-key") {
+            environment["DEEPINFRA_TOKEN"] = token
+        }
+        if currentSource == .deepseek, environment["DEEPSEEK_API_KEY"] == nil,
+           let token = keychainPassword(service: "deepseek-api-key") {
+            environment["DEEPSEEK_API_KEY"] = token
+        }
         process.environment = environment
 
         let output = Pipe()
@@ -820,6 +829,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         return pathCandidates
             .first { fileManager.isExecutableFile(atPath: $0) }
             .map { URL(fileURLWithPath: $0) }
+    }
+
+    private func keychainPassword(service: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private func shortReset(_ value: String) -> String {

@@ -15,6 +15,7 @@ iconutil -c icns "$iconset_dir" -o "$contents_dir/Resources/UsagePie.icns"
 swiftc \
   -swift-version 5 \
   -framework AppKit \
+  -framework Security \
   "$project_dir/UsagePie.swift" \
   -o "$contents_dir/MacOS/UsagePie"
 

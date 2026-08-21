@@ -98,7 +98,8 @@ configured DeepInfra monthly spending limit is treated as 100%, and the menu
 shows dollars spent and remaining. DeepInfra's usage API reports costs in cents;
 the Infra reader converts them to dollars before comparing them with the
 configured dollar limit. Infra reads `DEEPINFRA_TOKEN` and optionally
-`DEEPINFRA_BASE_URL` from the app environment.
+`DEEPINFRA_BASE_URL` from the app environment. When `DEEPINFRA_TOKEN` is not
+set, the app reads the existing `deepinfra-api-key` Keychain item.
 
 Choose **Source → DeepSeek** to show a single continuous balance ring. In
 **DeepSeek Settings**, set **Amount paid** to the total amount you have
@@ -107,6 +108,8 @@ The widget subtracts the current balance from that amount to show used and
 remaining percentages. DeepSeek's public API only returns the current balance,
 so this setting establishes the original total. DeepSeek reads
 `DEEPSEEK_API_KEY` and optionally `DEEPSEEK_BASE_URL` from the app environment.
+When `DEEPSEEK_API_KEY` is not set, the app reads the existing
+`deepseek-api-key` Keychain item.
 
 You can override executable, script, and settings locations with `CODEX_BIN`,
 `NODE_BIN`, `CODEX_USAGE_SCRIPT`, `USAGE_PIE_SETTINGS`,
