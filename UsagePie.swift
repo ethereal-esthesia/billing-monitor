@@ -170,14 +170,20 @@ private final class PieView: NSView {
 
     private func drawText(_ text: String, size: CGFloat, weight: NSFont.Weight,
                           color: NSColor, y: CGFloat) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: size, weight: weight),
             .foregroundColor: color,
+            .paragraphStyle: paragraph,
         ]
         let attributed = NSAttributedString(string: text, attributes: attributes)
-        let textSize = attributed.size()
-        attributed.draw(at: CGPoint(x: bounds.midX - textSize.width / 2,
-                                    y: y - textSize.height / 2))
+        let width = bounds.width - 32
+        let measured = attributed.boundingRect(with: NSSize(width: width, height: 80),
+                                                options: [.usesLineFragmentOrigin, .usesFontLeading])
+        attributed.draw(with: NSRect(x: 16, y: y - measured.height / 2,
+                                     width: width, height: measured.height + 2),
+                        options: [.usesLineFragmentOrigin, .usesFontLeading])
     }
 }
 
@@ -506,6 +512,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             pieView.fillColor = settings.fillColor
             schedulePolling()
             settingsPanel?.orderOut(nil)
+            refreshUsage()
         } catch {
             presentError(title: "Couldn’t save settings", message: error.localizedDescription)
         }
@@ -592,7 +599,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                                      usedPercent: 0, remainingPercent: 100,
                                                      dayCount: fallbackDays, elapsedDayCount: 0,
                                                      windowDuration: "\(fallbackDays) days",
-                                                     centerCaption: currentSource == .deepseek ? "balance unavailable" : "\(fallbackDays) day window",
+                                                     centerCaption: currentSource == .deepseek ? "balance\nunavailable" : "\(fallbackDays) day window",
                                                      resetText: "Usage unavailable",
                                                      checkedAt: Date())
         updateStatusItem()
@@ -857,9 +864,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             kSecReturnData as String: true,
         ]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+           let data = result as? Data,
+           let password = String(data: data, encoding: .utf8), !password.isEmpty {
+            return password
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-s", service, "-w"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        guard (try? process.run()) != nil else { return nil }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func shortReset(_ value: String) -> String {
