@@ -19,6 +19,7 @@ DeepSeek. It displays account usage as a transparent, borderless pie.
 - Poll automatically at a configurable interval while the widget is visible
 - Refresh stale usage when the menu-bar icon is hovered or opened
 - Matching menus from the menu bar or a right-click on the pie
+- Open the selected provider's billing or top-up page from either menu
 - Open settings, show or hide the pie, and run automatically at login
 - Custom app icon and drag-to-Applications DMG installer
 - Read usage without storing browser cookies or account credentials

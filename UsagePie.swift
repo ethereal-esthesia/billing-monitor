@@ -48,6 +48,22 @@ private enum UsageSource: String, CaseIterable {
         case .deepseek: return "DEEPSEEK_USAGE_SCRIPT"
         }
     }
+
+    var billingPageName: String {
+        switch self {
+        case .codex: return "Codex Billing"
+        case .infra: return "Infra Billing"
+        case .deepseek: return "DeepSeek Top Up"
+        }
+    }
+
+    var billingURL: URL {
+        switch self {
+        case .codex: return URL(string: "https://chatgpt.com/#settings/Subscription")!
+        case .infra: return URL(string: "https://deepinfra.com/dash/billing")!
+        case .deepseek: return URL(string: "https://platform.deepseek.com/top_up")!
+        }
+    }
 }
 
 private struct UsageSnapshot {
@@ -269,6 +285,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         menu.setSubmenu(sourceMenu, for: sourceItem)
         menu.addItem(sourceItem)
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        menu.addItem(withTitle: "Open Billing…", action: #selector(openBillingPage), keyEquivalent: "")
         menu.addItem(withTitle: "Refresh Usage", action: #selector(refreshUsage), keyEquivalent: "r")
         menu.addItem(withTitle: "Reload Settings", action: #selector(reloadSettings), keyEquivalent: "s")
         menu.addItem(.separator())
@@ -297,6 +314,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         if let visibilityItem = menu.items.first(where: { $0.action == #selector(toggleWidget) }) {
             visibilityItem.title = panel.isVisible ? "Hide Widget" : "Show Widget"
+        }
+        if let billingItem = menu.items.first(where: { $0.action == #selector(openBillingPage) }) {
+            billingItem.title = "Open \(currentSource.billingPageName)…"
         }
         if let loginItem = menu.items.first(where: { $0.action == #selector(toggleRunAtLogin) }) {
             loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -333,6 +353,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         NSApp.activate(ignoringOtherApps: true)
         settingsPanel?.center()
         settingsPanel?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func openBillingPage() {
+        NSWorkspace.shared.open(currentSource.billingURL)
     }
 
     private func makeSettingsPanel() -> NSPanel {
