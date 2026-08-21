@@ -68,7 +68,7 @@ private struct WidgetSettings {
     var opacity: CGFloat = 0.30
     var pollIntervalSeconds: TimeInterval = 300
     var fillColor = NSColor(srgbRed: 193 / 255, green: 233 / 255, blue: 242 / 255, alpha: 1)
-    var amountPaid: Double? = nil
+    var topUpBalance: Double? = nil
 }
 
 private final class PieView: NSView {
@@ -175,9 +175,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var pollIntervalField: NSTextField!
     private var fillColorField: NSTextField!
     private var fillColorWell: NSColorWell!
-    private var amountPaidLabel: NSTextField!
-    private var amountPaidField: NSTextField!
-    private var amountPaidSuffix: NSTextField!
+    private var topUpBalanceLabel: NSTextField!
+    private var topUpBalanceField: NSTextField!
+    private var topUpBalanceSuffix: NSTextField!
     private let pieView = PieView(frame: NSRect(x: 0, y: 0, width: 210, height: 210))
     private var settings = WidgetSettings()
     private var currentSource = UsageSource(rawValue: UserDefaults.standard.string(forKey: "usageSource") ?? "") ?? .codex
@@ -385,17 +385,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         fillColorWell.action = #selector(colorWellChanged)
         content.addSubview(fillColorWell)
 
-        amountPaidLabel = NSTextField(labelWithString: "Amount paid")
-        amountPaidLabel.frame = NSRect(x: 24, y: 60, width: 135, height: 20)
-        amountPaidLabel.alignment = .right
-        content.addSubview(amountPaidLabel)
-        amountPaidField = NSTextField(frame: NSRect(x: 170, y: 56, width: 150, height: 26))
-        amountPaidField.placeholderString = "10.00"
-        content.addSubview(amountPaidField)
-        amountPaidSuffix = NSTextField(labelWithString: "total deposited")
-        amountPaidSuffix.frame = NSRect(x: 324, y: 60, width: 94, height: 20)
-        amountPaidSuffix.textColor = .secondaryLabelColor
-        content.addSubview(amountPaidSuffix)
+        topUpBalanceLabel = NSTextField(labelWithString: "Initial top-up")
+        topUpBalanceLabel.frame = NSRect(x: 24, y: 60, width: 135, height: 20)
+        topUpBalanceLabel.alignment = .right
+        content.addSubview(topUpBalanceLabel)
+        topUpBalanceField = NSTextField(frame: NSRect(x: 170, y: 56, width: 150, height: 26))
+        topUpBalanceField.placeholderString = "2.00"
+        content.addSubview(topUpBalanceField)
+        topUpBalanceSuffix = NSTextField(labelWithString: "starting balance")
+        topUpBalanceSuffix.frame = NSRect(x: 324, y: 60, width: 94, height: 20)
+        topUpBalanceSuffix.textColor = .secondaryLabelColor
+        content.addSubview(topUpBalanceSuffix)
 
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelSettings))
         cancel.frame = NSRect(x: 238, y: 14, width: 78, height: 30)
@@ -423,11 +423,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         pollIntervalField.stringValue = String(Int(settings.pollIntervalSeconds.rounded()))
         fillColorWell.color = settings.fillColor
         fillColorField.stringValue = hexString(from: settings.fillColor)
-        amountPaidField.stringValue = settings.amountPaid.map { String(format: "%.2f", $0) } ?? ""
-        let showAmountPaid = currentSource == .deepseek
-        amountPaidLabel.isHidden = !showAmountPaid
-        amountPaidField.isHidden = !showAmountPaid
-        amountPaidSuffix.isHidden = !showAmountPaid
+        topUpBalanceField.stringValue = settings.topUpBalance.map { String(format: "%.2f", $0) } ?? ""
+        let showTopUpBalance = currentSource == .deepseek
+        topUpBalanceLabel.isHidden = !showTopUpBalance
+        topUpBalanceField.isHidden = !showTopUpBalance
+        topUpBalanceSuffix.isHidden = !showTopUpBalance
     }
 
     @objc private func colorWellChanged() {
@@ -453,13 +453,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             presentError(title: "Invalid fill color", message: "Use #RRGGBB or #RRGGBBAA format.")
             return
         }
-        var amountPaid: Double?
+        var topUpBalance: Double?
         if currentSource == .deepseek {
-            guard let value = Double(amountPaidField.stringValue), value > 0 else {
-                presentError(title: "Invalid amount paid", message: "Enter the total amount deposited into DeepSeek.")
+            guard let value = Double(topUpBalanceField.stringValue), value > 0 else {
+                presentError(title: "Invalid initial top-up", message: "Enter the starting DeepSeek balance.")
                 return
             }
-            amountPaid = value
+            topUpBalance = value
         }
         guard let destination = editableSettingsURL() else { return }
 
@@ -469,8 +469,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             "pollIntervalSeconds": pollSeconds,
             "fillColor": hexString(from: fillColor),
         ]
-        if let amountPaid {
-            payload["amountPaid"] = amountPaid
+        if let topUpBalance {
+            payload["topUpBalance"] = topUpBalance
         }
 
         do {
@@ -483,7 +483,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             settings = WidgetSettings(opacity: opacity,
                                       pollIntervalSeconds: pollSeconds,
                                       fillColor: fillColor,
-                                      amountPaid: amountPaid)
+                                      topUpBalance: topUpBalance)
             panel.alphaValue = settings.opacity
             pieView.fillColor = settings.fillColor
             schedulePolling()
@@ -682,11 +682,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func deepseekSnapshot(from json: [String: Any]) -> UsageSnapshot? {
         guard let balance = json["balance"] as? Double,
-              let amountPaid = settings.amountPaid, amountPaid > 0 else { return nil }
-        let spent = min(amountPaid, max(0, amountPaid - balance))
-        let remaining = min(amountPaid, max(0, balance))
-        let usedPercent = min(100, max(0, spent / amountPaid * 100))
-        let remainingPercent = min(100, max(0, remaining / amountPaid * 100))
+              let topUpBalance = settings.topUpBalance, topUpBalance > 0 else { return nil }
+        let spent = min(topUpBalance, max(0, topUpBalance - balance))
+        let remaining = min(topUpBalance, max(0, balance))
+        let usedPercent = min(100, max(0, spent / topUpBalance * 100))
+        let remainingPercent = min(100, max(0, remaining / topUpBalance * 100))
         let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
         let currencyCode = json["currency"] as? String ?? "USD"
         let currency = NumberFormatter()
@@ -733,9 +733,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let pollSeconds = max(WidgetSettings.minimumPollInterval,
                               json["pollIntervalSeconds"] as? Double ?? 300)
         let fillColor = color(fromHex: json["fillColor"] as? String) ?? WidgetSettings().fillColor
-        let amountPaid = json["amountPaid"] as? Double
+        let topUpBalance = (json["topUpBalance"] as? Double) ?? (json["amountPaid"] as? Double)
         return WidgetSettings(opacity: opacity, pollIntervalSeconds: pollSeconds,
-                              fillColor: fillColor, amountPaid: amountPaid)
+                              fillColor: fillColor, topUpBalance: topUpBalance)
     }
 
     private func color(fromHex value: String?) -> NSColor? {
@@ -804,8 +804,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     case .infra: defaultFill = "#B9E6C8"
                     case .deepseek: defaultFill = "#9FC5FF"
                     }
-                    let amountPaid = currentSource == .deepseek ? ",\n  \"amountPaid\": 0.00" : ""
-                    let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"\(defaultFill)\"\(amountPaid)\n}\n"
+                    let topUpBalance = currentSource == .deepseek ? ",\n  \"topUpBalance\": 0.00" : ""
+                    let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"\(defaultFill)\"\(topUpBalance)\n}\n"
                     try defaults.write(to: destination, atomically: true, encoding: .utf8)
                 }
             }

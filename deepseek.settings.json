@@ -1,6 +1,6 @@
 {
-  "amountPaid" : 0.0,
   "fillColor" : "#9FC5FF",
   "opacity" : 0.8,
-  "pollIntervalSeconds" : 300
+  "pollIntervalSeconds" : 300,
+  "topUpBalance" : 0.0
 }

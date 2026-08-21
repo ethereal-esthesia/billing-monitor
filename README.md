@@ -102,9 +102,9 @@ configured dollar limit. Infra reads `DEEPINFRA_TOKEN` and optionally
 set, the app reads the existing `deepinfra-api-key` Keychain item.
 
 Choose **Source → DeepSeek** to show a single continuous balance ring. In
-**DeepSeek Settings**, set **Amount paid** to the total amount you have
-deposited, using the same currency as the balance returned for your account.
-The widget subtracts the current balance from that amount to show used and
+**DeepSeek Settings**, set **Initial top-up** to the account's starting balance,
+using the same currency as the balance returned for your account. The widget
+subtracts the current balance from that amount to show used and
 remaining percentages. DeepSeek's public API only returns the current balance,
 so this setting establishes the original total. DeepSeek reads
 `DEEPSEEK_API_KEY` and optionally `DEEPSEEK_BASE_URL` from the app environment.
