@@ -20,7 +20,9 @@ swiftc \
 
 cp "$project_dir/UsagePie-Info.plist" "$contents_dir/Info.plist"
 cp "$project_dir/codex-usage.mjs" "$contents_dir/Resources/codex-usage.mjs"
+cp "$project_dir/infra-usage.mjs" "$contents_dir/Resources/infra-usage.mjs"
 cp "$project_dir/usage-pie.settings.json" "$contents_dir/Resources/usage-pie.settings.json"
+cp "$project_dir/infra.settings.json" "$contents_dir/Resources/infra.settings.json"
 
 codesign --force --deep --sign - "$app_dir"
 

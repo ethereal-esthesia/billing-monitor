@@ -3,10 +3,22 @@
 import AppKit
 import ServiceManagement
 
+private enum UsageSource: String, CaseIterable {
+    case codex
+    case infra
+
+    var displayName: String { self == .codex ? "Codex" : "Infra" }
+    var scriptName: String { self == .codex ? "codex-usage.mjs" : "infra-usage.mjs" }
+    var settingsFileName: String { self == .codex ? "usage-pie.settings.json" : "infra.settings.json" }
+    var settingsEnvironmentName: String { self == .codex ? "USAGE_PIE_SETTINGS" : "INFRA_USAGE_SETTINGS" }
+}
+
 private struct UsageSnapshot {
+    let sourceName: String
     let usedPercent: Double
     let remainingPercent: Double
     let dayCount: Int
+    let elapsedDayCount: Int
     let windowDuration: String
     let resetText: String
     let checkedAt: Date
@@ -21,7 +33,9 @@ private struct WidgetSettings {
 }
 
 private final class PieView: NSView {
-    var snapshot = UsageSnapshot(usedPercent: 0, remainingPercent: 100, dayCount: 7,
+    var snapshot = UsageSnapshot(sourceName: "Codex", usedPercent: 0, remainingPercent: 100,
+                                 dayCount: 7,
+                                 elapsedDayCount: 0,
                                  windowDuration: "7 days", resetText: "Loading…",
                                  checkedAt: Date()) {
         didSet { needsDisplay = true }
@@ -45,17 +59,20 @@ private final class PieView: NSView {
         let gap = min(0.035, segmentAngle * 0.10)
         let startAt = -CGFloat.pi / 2
         let sectionColor = NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.91, alpha: 0.82)
+        let elapsedSectionColor = sectionColor.blended(withFraction: 0.35, of: .white) ?? sectionColor
+        let elapsedFillColor = fillColor.blended(withFraction: 0.22, of: .white) ?? fillColor
 
         context.saveGState()
         context.setShadow(offset: CGSize(width: 0, height: -3), blur: 10,
                           color: NSColor.black.withAlphaComponent(0.25).cgColor)
 
         for index in 0..<count {
+            let isElapsed = index < snapshot.elapsedDayCount
             let segmentStart = startAt + CGFloat(index) * segmentAngle + gap
             let segmentEnd = startAt + CGFloat(index + 1) * segmentAngle - gap
             context.addPath(ringPath(center: center, innerRadius: innerRadius,
                                      outerRadius: outerRadius, start: segmentStart, end: segmentEnd))
-            context.setFillColor(sectionColor.cgColor)
+            context.setFillColor((isElapsed ? elapsedSectionColor : sectionColor).cgColor)
             context.fillPath()
 
             let filledSegments = CGFloat(snapshot.usedPercent / 100) * CGFloat(count)
@@ -64,7 +81,7 @@ private final class PieView: NSView {
                 let fillEnd = segmentStart + (segmentEnd - segmentStart) * fraction
                 context.addPath(ringPath(center: center, innerRadius: innerRadius,
                                          outerRadius: outerRadius, start: segmentStart, end: fillEnd))
-                context.setFillColor(fillColor.cgColor)
+                context.setFillColor((isElapsed ? elapsedFillColor : fillColor).cgColor)
                 context.fillPath()
             }
         }
@@ -120,6 +137,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var fillColorWell: NSColorWell!
     private let pieView = PieView(frame: NSRect(x: 0, y: 0, width: 210, height: 210))
     private var settings = WidgetSettings()
+    private var currentSource = UsageSource(rawValue: UserDefaults.standard.string(forKey: "usageSource") ?? "") ?? .codex
     private var pollTimer: Timer?
     private var lastRefreshAt: Date?
 
@@ -196,6 +214,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         reset.isEnabled = false
         menu.addItem(reset)
         menu.addItem(.separator())
+        let sourceItem = NSMenuItem(title: "Source", action: nil, keyEquivalent: "")
+        let sourceMenu = NSMenu(title: "Source")
+        for (index, source) in UsageSource.allCases.enumerated() {
+            let item = NSMenuItem(title: source.displayName,
+                                  action: #selector(selectUsageSource(_:)), keyEquivalent: "")
+            item.tag = 200 + index
+            item.representedObject = source.rawValue
+            item.target = self
+            sourceMenu.addItem(item)
+        }
+        menu.setSubmenu(sourceMenu, for: sourceItem)
+        menu.addItem(sourceItem)
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "Refresh Usage", action: #selector(refreshUsage), keyEquivalent: "r")
         menu.addItem(withTitle: "Reload Settings", action: #selector(reloadSettings), keyEquivalent: "s")
@@ -218,6 +248,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         if let reset = menu.item(withTag: 101) {
             reset.title = pieView.snapshot.resetText
         }
+        if let sourceMenu = menu.items.first(where: { $0.submenu?.title == "Source" })?.submenu {
+            for item in sourceMenu.items {
+                item.state = item.representedObject as? String == currentSource.rawValue ? .on : .off
+            }
+        }
         if let visibilityItem = menu.items.first(where: { $0.action == #selector(toggleWidget) }) {
             visibilityItem.title = panel.isVisible ? "Hide Widget" : "Show Widget"
         }
@@ -233,11 +268,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         schedulePolling()
     }
 
+    @objc private func selectUsageSource(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let source = UsageSource(rawValue: rawValue), source != currentSource else { return }
+        currentSource = source
+        UserDefaults.standard.set(source.rawValue, forKey: "usageSource")
+        lastRefreshAt = nil
+        settings = readSettings()
+        panel.alphaValue = settings.opacity
+        pieView.fillColor = settings.fillColor
+        settingsPanel?.orderOut(nil)
+        refreshUsage()
+        schedulePolling()
+    }
+
     @objc private func openSettings() {
         if settingsPanel == nil {
             settingsPanel = makeSettingsPanel()
         }
         populateSettingsFields()
+        settingsPanel?.title = "\(currentSource.displayName) Settings"
         NSApp.activate(ignoringOtherApps: true)
         settingsPanel?.center()
         settingsPanel?.makeKeyAndOrderFront(nil)
@@ -432,15 +482,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     @objc private func refreshUsage() {
         lastRefreshAt = Date()
         let previous = pieView.snapshot
-        pieView.snapshot = UsageSnapshot(usedPercent: previous.usedPercent,
+        pieView.snapshot = UsageSnapshot(sourceName: previous.sourceName,
+                                         usedPercent: previous.usedPercent,
                                          remainingPercent: previous.remainingPercent,
                                          dayCount: previous.dayCount,
+                                         elapsedDayCount: previous.elapsedDayCount,
                                          windowDuration: previous.windowDuration,
                                          resetText: "Refreshing…",
                                          checkedAt: previous.checkedAt)
         let snapshot = readUsage()
-        pieView.snapshot = snapshot ?? UsageSnapshot(usedPercent: 0, remainingPercent: 100,
-                                                     dayCount: 7, windowDuration: "7 days",
+        let fallbackDays = currentSource == .infra ? 30 : 7
+        pieView.snapshot = snapshot ?? UsageSnapshot(sourceName: currentSource.displayName,
+                                                     usedPercent: 0, remainingPercent: 100,
+                                                     dayCount: fallbackDays, elapsedDayCount: 0,
+                                                     windowDuration: "\(fallbackDays) days",
                                                      resetText: "Usage unavailable",
                                                      checkedAt: Date())
         updateStatusItem()
@@ -460,7 +515,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         process.currentDirectoryURL = script.deletingLastPathComponent()
 
         var environment = ProcessInfo.processInfo.environment
-        if environment["CODEX_BIN"] == nil {
+        if currentSource == .codex, environment["CODEX_BIN"] == nil {
             let bundledCodex = "/Applications/ChatGPT.app/Contents/Resources/codex"
             if FileManager.default.isExecutableFile(atPath: bundledCodex) {
                 environment["CODEX_BIN"] = bundledCodex
@@ -480,7 +535,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
 
         guard process.terminationStatus == 0,
-              let json = try? JSONSerialization.jsonObject(with: output.fileHandleForReading.readDataToEndOfFile()) as? [String: Any],
+              let json = try? JSONSerialization.jsonObject(with: output.fileHandleForReading.readDataToEndOfFile()) as? [String: Any] else {
+            return nil
+        }
+
+        if currentSource == .infra {
+            return infraSnapshot(from: json)
+        }
+
+        guard
               let limits = json["limits"] as? [[String: Any]],
               let first = limits.first,
               let primary = first["primary"] as? [String: Any] else { return nil }
@@ -491,18 +554,53 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let days = max(1, Int((minutes / 1_440).rounded()))
         let duration = primary["windowDuration"] as? String ?? "\(days) days"
         let reset = primary["resetsAtLocal"] as? String ?? "Reset unknown"
-        let checkedAt = (json["checkedAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? Date()
-        return UsageSnapshot(usedPercent: used, remainingPercent: remaining, dayCount: days,
+        let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
+        let resetAt = (primary["resetsAt"] as? String).flatMap(parseISO8601)
+        let windowSeconds = max(1, minutes * 60)
+        let elapsedSeconds = resetAt.map { windowSeconds - max(0, $0.timeIntervalSince(checkedAt)) } ?? 0
+        let elapsedDays = min(days, max(0, Int(floor(elapsedSeconds / (windowSeconds / Double(days))))))
+        return UsageSnapshot(sourceName: currentSource.displayName,
+                             usedPercent: used, remainingPercent: remaining, dayCount: days,
+                             elapsedDayCount: elapsedDays,
                              windowDuration: duration, resetText: shortReset(reset),
                              checkedAt: checkedAt)
+    }
+
+    private func infraSnapshot(from json: [String: Any]) -> UsageSnapshot? {
+        guard let spent = json["spent"] as? Double,
+              let limit = json["limit"] as? Double, limit > 0 else { return nil }
+        let remaining = max(0, (json["remaining"] as? Double) ?? limit - spent)
+        let usedPercent = min(100, max(0, spent / limit * 100))
+        let remainingPercent = min(100, max(0, remaining / limit * 100))
+        let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
+        let currency = NumberFormatter()
+        currency.numberStyle = .currency
+        currency.currencyCode = "USD"
+        currency.maximumFractionDigits = 2
+        let spentText = currency.string(from: NSNumber(value: spent)) ?? String(format: "$%.2f", spent)
+        let remainingText = currency.string(from: NSNumber(value: remaining)) ?? String(format: "$%.2f", remaining)
+
+        return UsageSnapshot(sourceName: currentSource.displayName,
+                             usedPercent: usedPercent, remainingPercent: remainingPercent,
+                             dayCount: 30, elapsedDayCount: 29,
+                             windowDuration: "30 rolling days",
+                             resetText: "\(spentText) spent · \(remainingText) remaining",
+                             checkedAt: checkedAt)
+    }
+
+    private func parseISO8601(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     private func usageScriptURL() -> URL? {
         let fileManager = FileManager.default
         let candidates = [
-            ProcessInfo.processInfo.environment["CODEX_USAGE_SCRIPT"].map { URL(fileURLWithPath: $0) },
-            Bundle.main.resourceURL?.appendingPathComponent("codex-usage.mjs"),
-            URL(fileURLWithPath: fileManager.currentDirectoryPath).appendingPathComponent("codex-usage.mjs"),
+            ProcessInfo.processInfo.environment[currentSource == .codex ? "CODEX_USAGE_SCRIPT" : "INFRA_USAGE_SCRIPT"]
+                .map { URL(fileURLWithPath: $0) },
+            Bundle.main.resourceURL?.appendingPathComponent(currentSource.scriptName),
+            URL(fileURLWithPath: fileManager.currentDirectoryPath).appendingPathComponent(currentSource.scriptName),
         ].compactMap { $0 }
         return candidates.first { fileManager.fileExists(atPath: $0.path) }
     }
@@ -550,9 +648,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func settingsURL() -> URL? {
         let fileManager = FileManager.default
-        let fileName = "usage-pie.settings.json"
+        let fileName = currentSource.settingsFileName
         let candidates = [
-            ProcessInfo.processInfo.environment["USAGE_PIE_SETTINGS"].map { URL(fileURLWithPath: $0) },
+            ProcessInfo.processInfo.environment[currentSource.settingsEnvironmentName].map { URL(fileURLWithPath: $0) },
             applicationSupportSettingsURL(),
             Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(fileName),
             URL(fileURLWithPath: fileManager.currentDirectoryPath).appendingPathComponent(fileName),
@@ -563,12 +661,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func editableSettingsURL() -> URL? {
         let fileManager = FileManager.default
-        if let override = ProcessInfo.processInfo.environment["USAGE_PIE_SETTINGS"] {
+        if let override = ProcessInfo.processInfo.environment[currentSource.settingsEnvironmentName] {
             return URL(fileURLWithPath: override)
         }
 
         let sibling = Bundle.main.bundleURL.deletingLastPathComponent()
-            .appendingPathComponent("usage-pie.settings.json")
+            .appendingPathComponent(currentSource.settingsFileName)
         if !Bundle.main.bundleURL.path.hasPrefix("/Applications/") &&
             fileManager.fileExists(atPath: sibling.path) {
             return sibling
@@ -582,7 +680,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 if let source = settingsURL(), source != destination {
                     try fileManager.copyItem(at: source, to: destination)
                 } else {
-                    let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"#C1E9F2\"\n}\n"
+                    let defaultFill = currentSource == .codex ? "#C1E9F2" : "#B9E6C8"
+                    let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"\(defaultFill)\"\n}\n"
                     try defaults.write(to: destination, atomically: true, encoding: .utf8)
                 }
             }
@@ -596,7 +695,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func applicationSupportSettingsURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("Usage Pie", isDirectory: true)
-            .appendingPathComponent("usage-pie.settings.json")
+            .appendingPathComponent(currentSource.settingsFileName)
     }
 
     private func executable(named name: String, commonPaths: [String]) -> URL? {
@@ -618,7 +717,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func menuSummary(for snapshot: UsageSnapshot) -> String {
-        "\(Int(snapshot.usedPercent.rounded()))% used · \(Int(snapshot.remainingPercent.rounded()))% remaining"
+        "\(snapshot.sourceName): \(Int(snapshot.usedPercent.rounded()))% used · \(Int(snapshot.remainingPercent.rounded()))% remaining"
     }
 
     private func usageToolTip(for snapshot: UsageSnapshot) -> String {
@@ -626,7 +725,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                                     dateStyle: .none,
                                                     timeStyle: .short)
         return [
-            "Codex: \(Int(snapshot.usedPercent.rounded()))% used · \(Int(snapshot.remainingPercent.rounded()))% remaining",
+            "\(snapshot.sourceName): \(Int(snapshot.usedPercent.rounded()))% used · \(Int(snapshot.remainingPercent.rounded()))% remaining",
             "\(snapshot.windowDuration) · \(snapshot.resetText)",
             "Checked \(checked)",
         ].joined(separator: "\n")
