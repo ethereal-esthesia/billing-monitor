@@ -6,11 +6,47 @@ import ServiceManagement
 private enum UsageSource: String, CaseIterable {
     case codex
     case infra
+    case deepseek
 
-    var displayName: String { self == .codex ? "Codex" : "Infra" }
-    var scriptName: String { self == .codex ? "codex-usage.mjs" : "infra-usage.mjs" }
-    var settingsFileName: String { self == .codex ? "usage-pie.settings.json" : "infra.settings.json" }
-    var settingsEnvironmentName: String { self == .codex ? "USAGE_PIE_SETTINGS" : "INFRA_USAGE_SETTINGS" }
+    var displayName: String {
+        switch self {
+        case .codex: return "Codex"
+        case .infra: return "Infra"
+        case .deepseek: return "DeepSeek"
+        }
+    }
+
+    var scriptName: String {
+        switch self {
+        case .codex: return "codex-usage.mjs"
+        case .infra: return "infra-usage.mjs"
+        case .deepseek: return "deepseek-usage.mjs"
+        }
+    }
+
+    var settingsFileName: String {
+        switch self {
+        case .codex: return "usage-pie.settings.json"
+        case .infra: return "infra.settings.json"
+        case .deepseek: return "deepseek.settings.json"
+        }
+    }
+
+    var settingsEnvironmentName: String {
+        switch self {
+        case .codex: return "USAGE_PIE_SETTINGS"
+        case .infra: return "INFRA_USAGE_SETTINGS"
+        case .deepseek: return "DEEPSEEK_USAGE_SETTINGS"
+        }
+    }
+
+    var scriptEnvironmentName: String {
+        switch self {
+        case .codex: return "CODEX_USAGE_SCRIPT"
+        case .infra: return "INFRA_USAGE_SCRIPT"
+        case .deepseek: return "DEEPSEEK_USAGE_SCRIPT"
+        }
+    }
 }
 
 private struct UsageSnapshot {
@@ -20,6 +56,7 @@ private struct UsageSnapshot {
     let dayCount: Int
     let elapsedDayCount: Int
     let windowDuration: String
+    let centerCaption: String
     let resetText: String
     let checkedAt: Date
 }
@@ -30,13 +67,15 @@ private struct WidgetSettings {
     var opacity: CGFloat = 0.30
     var pollIntervalSeconds: TimeInterval = 300
     var fillColor = NSColor(srgbRed: 193 / 255, green: 233 / 255, blue: 242 / 255, alpha: 1)
+    var amountPaid: Double? = nil
 }
 
 private final class PieView: NSView {
     var snapshot = UsageSnapshot(sourceName: "Codex", usedPercent: 0, remainingPercent: 100,
                                  dayCount: 7,
                                  elapsedDayCount: 0,
-                                 windowDuration: "7 days", resetText: "Loading…",
+                                 windowDuration: "7 days", centerCaption: "7 day window",
+                                 resetText: "Loading…",
                                  checkedAt: Date()) {
         didSet { needsDisplay = true }
     }
@@ -56,7 +95,7 @@ private final class PieView: NSView {
         let count = max(1, snapshot.dayCount)
         let fullTurn = CGFloat.pi * 2
         let segmentAngle = fullTurn / CGFloat(count)
-        let gap = min(0.035, segmentAngle * 0.10)
+        let gap: CGFloat = count == 1 ? 0 : min(0.035, segmentAngle * 0.10)
         let startAt = -CGFloat.pi / 2
         let sectionColor = NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.91, alpha: 0.82)
         let elapsedSectionColor = sectionColor.blended(withFraction: 0.35, of: .white) ?? sectionColor
@@ -108,7 +147,7 @@ private final class PieView: NSView {
         let percent = "\(Int(snapshot.usedPercent.rounded()))%"
         drawText(percent, size: 26, weight: .bold,
                  color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 11)
-        drawText("\(snapshot.dayCount) day window", size: 10, weight: .semibold,
+        drawText(snapshot.centerCaption, size: 10, weight: .semibold,
                  color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 13)
     }
 
@@ -135,6 +174,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var pollIntervalField: NSTextField!
     private var fillColorField: NSTextField!
     private var fillColorWell: NSColorWell!
+    private var amountPaidLabel: NSTextField!
+    private var amountPaidField: NSTextField!
+    private var amountPaidSuffix: NSTextField!
     private let pieView = PieView(frame: NSRect(x: 0, y: 0, width: 210, height: 210))
     private var settings = WidgetSettings()
     private var currentSource = UsageSource(rawValue: UserDefaults.standard.string(forKey: "usageSource") ?? "") ?? .codex
@@ -295,7 +337,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func makeSettingsPanel() -> NSPanel {
         let editor = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 250),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 290),
             styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
             defer: false
@@ -306,41 +348,53 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         let content = editor.contentView!
         let title = NSTextField(labelWithString: "Appearance & Updates")
-        title.frame = NSRect(x: 24, y: 204, width: 370, height: 24)
+        title.frame = NSRect(x: 24, y: 244, width: 370, height: 24)
         title.font = .systemFont(ofSize: 17, weight: .semibold)
         content.addSubview(title)
 
         let detail = NSTextField(labelWithString: "Changes apply immediately when you save.")
-        detail.frame = NSRect(x: 24, y: 182, width: 370, height: 18)
+        detail.frame = NSRect(x: 24, y: 222, width: 370, height: 18)
         detail.textColor = .secondaryLabelColor
         content.addSubview(detail)
 
-        addSettingsLabel("Opacity", y: 140, to: content)
-        opacityField = NSTextField(frame: NSRect(x: 170, y: 136, width: 150, height: 26))
+        addSettingsLabel("Opacity", y: 180, to: content)
+        opacityField = NSTextField(frame: NSRect(x: 170, y: 176, width: 150, height: 26))
         opacityField.placeholderString = "30"
         content.addSubview(opacityField)
         let percentSuffix = NSTextField(labelWithString: "%")
-        percentSuffix.frame = NSRect(x: 328, y: 140, width: 44, height: 20)
+        percentSuffix.frame = NSRect(x: 328, y: 180, width: 44, height: 20)
         percentSuffix.textColor = .secondaryLabelColor
         content.addSubview(percentSuffix)
 
-        addSettingsLabel("Polling interval", y: 100, to: content)
-        pollIntervalField = NSTextField(frame: NSRect(x: 170, y: 96, width: 150, height: 26))
+        addSettingsLabel("Polling interval", y: 140, to: content)
+        pollIntervalField = NSTextField(frame: NSRect(x: 170, y: 136, width: 150, height: 26))
         pollIntervalField.placeholderString = "300"
         content.addSubview(pollIntervalField)
         let secondsSuffix = NSTextField(labelWithString: "seconds")
-        secondsSuffix.frame = NSRect(x: 328, y: 100, width: 68, height: 20)
+        secondsSuffix.frame = NSRect(x: 328, y: 140, width: 68, height: 20)
         secondsSuffix.textColor = .secondaryLabelColor
         content.addSubview(secondsSuffix)
 
-        addSettingsLabel("Fill color", y: 60, to: content)
-        fillColorField = NSTextField(frame: NSRect(x: 170, y: 56, width: 150, height: 26))
+        addSettingsLabel("Fill color", y: 100, to: content)
+        fillColorField = NSTextField(frame: NSRect(x: 170, y: 96, width: 150, height: 26))
         fillColorField.placeholderString = "#C1E9F2"
         content.addSubview(fillColorField)
-        fillColorWell = NSColorWell(frame: NSRect(x: 328, y: 55, width: 48, height: 28))
+        fillColorWell = NSColorWell(frame: NSRect(x: 328, y: 95, width: 48, height: 28))
         fillColorWell.target = self
         fillColorWell.action = #selector(colorWellChanged)
         content.addSubview(fillColorWell)
+
+        amountPaidLabel = NSTextField(labelWithString: "Amount paid")
+        amountPaidLabel.frame = NSRect(x: 24, y: 60, width: 135, height: 20)
+        amountPaidLabel.alignment = .right
+        content.addSubview(amountPaidLabel)
+        amountPaidField = NSTextField(frame: NSRect(x: 170, y: 56, width: 150, height: 26))
+        amountPaidField.placeholderString = "10.00"
+        content.addSubview(amountPaidField)
+        amountPaidSuffix = NSTextField(labelWithString: "total deposited")
+        amountPaidSuffix.frame = NSRect(x: 324, y: 60, width: 94, height: 20)
+        amountPaidSuffix.textColor = .secondaryLabelColor
+        content.addSubview(amountPaidSuffix)
 
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelSettings))
         cancel.frame = NSRect(x: 238, y: 14, width: 78, height: 30)
@@ -368,6 +422,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         pollIntervalField.stringValue = String(Int(settings.pollIntervalSeconds.rounded()))
         fillColorWell.color = settings.fillColor
         fillColorField.stringValue = hexString(from: settings.fillColor)
+        amountPaidField.stringValue = settings.amountPaid.map { String(format: "%.2f", $0) } ?? ""
+        let showAmountPaid = currentSource == .deepseek
+        amountPaidLabel.isHidden = !showAmountPaid
+        amountPaidField.isHidden = !showAmountPaid
+        amountPaidSuffix.isHidden = !showAmountPaid
     }
 
     @objc private func colorWellChanged() {
@@ -393,14 +452,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             presentError(title: "Invalid fill color", message: "Use #RRGGBB or #RRGGBBAA format.")
             return
         }
+        var amountPaid: Double?
+        if currentSource == .deepseek {
+            guard let value = Double(amountPaidField.stringValue), value > 0 else {
+                presentError(title: "Invalid amount paid", message: "Enter the total amount deposited into DeepSeek.")
+                return
+            }
+            amountPaid = value
+        }
         guard let destination = editableSettingsURL() else { return }
 
         let opacity = opacityPercent / 100
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "opacity": NSDecimalNumber(string: String(format: "%.2f", opacity)),
             "pollIntervalSeconds": pollSeconds,
             "fillColor": hexString(from: fillColor),
         ]
+        if let amountPaid {
+            payload["amountPaid"] = amountPaid
+        }
 
         do {
             try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
@@ -411,7 +481,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             try data.write(to: destination, options: .atomic)
             settings = WidgetSettings(opacity: opacity,
                                       pollIntervalSeconds: pollSeconds,
-                                      fillColor: fillColor)
+                                      fillColor: fillColor,
+                                      amountPaid: amountPaid)
             panel.alphaValue = settings.opacity
             pieView.fillColor = settings.fillColor
             schedulePolling()
@@ -488,14 +559,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                          dayCount: previous.dayCount,
                                          elapsedDayCount: previous.elapsedDayCount,
                                          windowDuration: previous.windowDuration,
+                                         centerCaption: previous.centerCaption,
                                          resetText: "Refreshing…",
                                          checkedAt: previous.checkedAt)
         let snapshot = readUsage()
-        let fallbackDays = currentSource == .infra ? 30 : 7
+        let fallbackDays: Int
+        switch currentSource {
+        case .codex: fallbackDays = 7
+        case .infra: fallbackDays = 30
+        case .deepseek: fallbackDays = 1
+        }
         pieView.snapshot = snapshot ?? UsageSnapshot(sourceName: currentSource.displayName,
                                                      usedPercent: 0, remainingPercent: 100,
                                                      dayCount: fallbackDays, elapsedDayCount: 0,
                                                      windowDuration: "\(fallbackDays) days",
+                                                     centerCaption: currentSource == .deepseek ? "balance unavailable" : "\(fallbackDays) day window",
                                                      resetText: "Usage unavailable",
                                                      checkedAt: Date())
         updateStatusItem()
@@ -542,6 +620,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         if currentSource == .infra {
             return infraSnapshot(from: json)
         }
+        if currentSource == .deepseek {
+            return deepseekSnapshot(from: json)
+        }
 
         guard
               let limits = json["limits"] as? [[String: Any]],
@@ -562,7 +643,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         return UsageSnapshot(sourceName: currentSource.displayName,
                              usedPercent: used, remainingPercent: remaining, dayCount: days,
                              elapsedDayCount: elapsedDays,
-                             windowDuration: duration, resetText: shortReset(reset),
+                             windowDuration: duration, centerCaption: "\(days) day window",
+                             resetText: shortReset(reset),
                              checkedAt: checkedAt)
     }
 
@@ -584,7 +666,33 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              usedPercent: usedPercent, remainingPercent: remainingPercent,
                              dayCount: 30, elapsedDayCount: 29,
                              windowDuration: "30 rolling days",
+                             centerCaption: "30 day window",
                              resetText: "\(spentText) spent · \(remainingText) remaining",
+                             checkedAt: checkedAt)
+    }
+
+    private func deepseekSnapshot(from json: [String: Any]) -> UsageSnapshot? {
+        guard let balance = json["balance"] as? Double,
+              let amountPaid = settings.amountPaid, amountPaid > 0 else { return nil }
+        let spent = min(amountPaid, max(0, amountPaid - balance))
+        let remaining = min(amountPaid, max(0, balance))
+        let usedPercent = min(100, max(0, spent / amountPaid * 100))
+        let remainingPercent = min(100, max(0, remaining / amountPaid * 100))
+        let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
+        let currencyCode = json["currency"] as? String ?? "USD"
+        let currency = NumberFormatter()
+        currency.numberStyle = .currency
+        currency.currencyCode = currencyCode
+        currency.maximumFractionDigits = 2
+        let spentText = currency.string(from: NSNumber(value: spent)) ?? String(format: "%.2f %@", spent, currencyCode)
+        let remainingText = currency.string(from: NSNumber(value: balance)) ?? String(format: "%.2f %@", balance, currencyCode)
+
+        return UsageSnapshot(sourceName: currentSource.displayName,
+                             usedPercent: usedPercent, remainingPercent: remainingPercent,
+                             dayCount: 1, elapsedDayCount: 0,
+                             windowDuration: "Prepaid balance",
+                             centerCaption: "\(Int(remainingPercent.rounded()))% remaining",
+                             resetText: "\(spentText) used · \(remainingText) remaining",
                              checkedAt: checkedAt)
     }
 
@@ -597,7 +705,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func usageScriptURL() -> URL? {
         let fileManager = FileManager.default
         let candidates = [
-            ProcessInfo.processInfo.environment[currentSource == .codex ? "CODEX_USAGE_SCRIPT" : "INFRA_USAGE_SCRIPT"]
+            ProcessInfo.processInfo.environment[currentSource.scriptEnvironmentName]
                 .map { URL(fileURLWithPath: $0) },
             Bundle.main.resourceURL?.appendingPathComponent(currentSource.scriptName),
             URL(fileURLWithPath: fileManager.currentDirectoryPath).appendingPathComponent(currentSource.scriptName),
@@ -616,8 +724,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let pollSeconds = max(WidgetSettings.minimumPollInterval,
                               json["pollIntervalSeconds"] as? Double ?? 300)
         let fillColor = color(fromHex: json["fillColor"] as? String) ?? WidgetSettings().fillColor
+        let amountPaid = json["amountPaid"] as? Double
         return WidgetSettings(opacity: opacity, pollIntervalSeconds: pollSeconds,
-                              fillColor: fillColor)
+                              fillColor: fillColor, amountPaid: amountPaid)
     }
 
     private func color(fromHex value: String?) -> NSColor? {
@@ -680,8 +789,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 if let source = settingsURL(), source != destination {
                     try fileManager.copyItem(at: source, to: destination)
                 } else {
-                    let defaultFill = currentSource == .codex ? "#C1E9F2" : "#B9E6C8"
-                    let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"\(defaultFill)\"\n}\n"
+                    let defaultFill: String
+                    switch currentSource {
+                    case .codex: defaultFill = "#C1E9F2"
+                    case .infra: defaultFill = "#B9E6C8"
+                    case .deepseek: defaultFill = "#9FC5FF"
+                    }
+                    let amountPaid = currentSource == .deepseek ? ",\n  \"amountPaid\": 0.00" : ""
+                    let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"\(defaultFill)\"\(amountPaid)\n}\n"
                     try defaults.write(to: destination, atomically: true, encoding: .utf8)
                 }
             }

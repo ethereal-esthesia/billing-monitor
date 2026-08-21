@@ -1,8 +1,7 @@
 # Usage Pie
 
-Usage Pie is a tiny, draggable macOS usage monitor for Codex and DeepInfra. It
-displays account usage as a transparent, borderless pie divided into one equal
-section per day in the current usage window.
+Usage Pie is a tiny, draggable macOS usage monitor for Codex, DeepInfra, and
+DeepSeek. It displays account usage as a transparent, borderless pie.
 
 ![Usage Pie widget and native settings editor](docs/usage-pie-preview.png)
 
@@ -14,6 +13,7 @@ section per day in the current usage window.
 - Drag from anywhere and remember the last window position
 - Divide the usage window into equal daily sections
 - Switch between Codex usage and DeepInfra's rolling 30-day billing usage
+- Show DeepSeek prepaid usage as one continuous used/remaining ring
 - Show current usage percentage and window duration in the pie
 - Keep the reset date in the menu and menu-bar hover statistics
 - Poll automatically at a configurable interval while the widget is visible
@@ -86,7 +86,8 @@ The editor stores these values in the selected source's JSON file:
 - `fillColor` accepts a CSS-style `#RRGGBB` or `#RRGGBBAA` hex color.
 
 You can still edit [`usage-pie.settings.json`](usage-pie.settings.json) for
-Codex or [`infra.settings.json`](infra.settings.json) for Infra directly. After
+Codex, [`infra.settings.json`](infra.settings.json) for Infra, or
+[`deepseek.settings.json`](deepseek.settings.json) for DeepSeek directly. After
 a manual edit, choose **Reload Settings**, or relaunch the app.
 
 When the installed app creates a personal configuration, it stores it at
@@ -99,9 +100,18 @@ the Infra reader converts them to dollars before comparing them with the
 configured dollar limit. Infra reads `DEEPINFRA_TOKEN` and optionally
 `DEEPINFRA_BASE_URL` from the app environment.
 
+Choose **Source → DeepSeek** to show a single continuous balance ring. In
+**DeepSeek Settings**, set **Amount paid** to the total amount you have
+deposited, using the same currency as the balance returned for your account.
+The widget subtracts the current balance from that amount to show used and
+remaining percentages. DeepSeek's public API only returns the current balance,
+so this setting establishes the original total. DeepSeek reads
+`DEEPSEEK_API_KEY` and optionally `DEEPSEEK_BASE_URL` from the app environment.
+
 You can override executable, script, and settings locations with `CODEX_BIN`,
 `NODE_BIN`, `CODEX_USAGE_SCRIPT`, `USAGE_PIE_SETTINGS`,
-`INFRA_USAGE_SCRIPT`, and `INFRA_USAGE_SETTINGS`.
+`INFRA_USAGE_SCRIPT`, `INFRA_USAGE_SETTINGS`, `DEEPSEEK_USAGE_SCRIPT`, and
+`DEEPSEEK_USAGE_SETTINGS`.
 
 ## Project layout
 
@@ -109,8 +119,10 @@ You can override executable, script, and settings locations with `CODEX_BIN`,
 - `IconRenderer.swift` — generates the multi-resolution macOS app icon
 - `codex-usage.mjs` — one-shot Codex usage reader
 - `infra-usage.mjs` — one-shot DeepInfra billing reader
+- `deepseek-usage.mjs` — one-shot DeepSeek balance reader
 - `usage-pie.settings.json` — user-editable widget configuration
 - `infra.settings.json` — user-editable Infra appearance configuration
+- `deepseek.settings.json` — user-editable DeepSeek balance and appearance configuration
 - `build-widget.sh` — creates the macOS app bundle
 - `build-installer.sh` — creates the distributable DMG installer
 - `run-widget.sh` — builds and launches the widget
