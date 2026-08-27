@@ -121,30 +121,33 @@ private final class PieView: NSView {
 
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         let outerRadius = min(bounds.width, bounds.height) * 0.42
-        let innerRadius = outerRadius * (snapshot.innerWindow == nil ? 0.59 : 0.72)
+        let originalInnerRadius = outerRadius * 0.59
+        let middleRadius = (outerRadius + originalInnerRadius) / 2
+        let divider: CGFloat = snapshot.innerWindow == nil ? 0 : 1.5
+        let outerRingInnerRadius = snapshot.innerWindow == nil
+            ? originalInnerRadius
+            : middleRadius + divider
         context.saveGState()
         context.setShadow(offset: CGSize(width: 0, height: -3), blur: 10,
                           color: NSColor.black.withAlphaComponent(0.25).cgColor)
-        drawRing(context: context, center: center, innerRadius: innerRadius,
+        drawRing(context: context, center: center, innerRadius: outerRingInnerRadius,
                  outerRadius: outerRadius, count: snapshot.dayCount,
                  usedPercent: snapshot.usedPercent,
                  elapsedWindowFraction: snapshot.elapsedWindowFraction,
                  color: fillColor)
         context.restoreGState()
 
-        var centerRadius = innerRadius
+        let centerRadius = originalInnerRadius
         if let innerWindow = snapshot.innerWindow {
-            let innerOuterRadius = innerRadius - 5
-            let innerInnerRadius = innerOuterRadius * 0.56
+            let innerOuterRadius = middleRadius - divider
             let innerColor = fillColor.blended(withFraction: 0.18, of: .black) ?? fillColor
             context.saveGState()
-            drawRing(context: context, center: center, innerRadius: innerInnerRadius,
+            drawRing(context: context, center: center, innerRadius: originalInnerRadius,
                      outerRadius: innerOuterRadius, count: innerWindow.segmentCount,
                      usedPercent: innerWindow.usedPercent,
                      elapsedWindowFraction: innerWindow.elapsedWindowFraction,
                      color: innerColor)
             context.restoreGState()
-            centerRadius = innerInnerRadius
         }
 
         drawCenter(center: center, radius: centerRadius)
@@ -218,10 +221,10 @@ private final class PieView: NSView {
 
         if let innerWindow = snapshot.innerWindow {
             let percentages = "\(Int(snapshot.usedPercent.rounded()))% · \(Int(innerWindow.usedPercent.rounded()))%"
-            drawText(percentages, size: 14, weight: .bold,
-                     color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 7)
-            drawText("7d outer · 5h inner", size: 8, weight: .semibold,
-                     color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 8)
+            drawText(percentages, size: 18, weight: .bold,
+                     color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 9)
+            drawText("7d outer · 5h inner", size: 9, weight: .semibold,
+                     color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 10)
         } else {
             let percent = "\(Int(snapshot.usedPercent.rounded()))%"
             drawText(percent, size: 26, weight: .bold,
