@@ -71,10 +71,11 @@ private struct UsageSnapshot {
     let usedPercent: Double
     let remainingPercent: Double
     let dayCount: Int
-    let elapsedDayCount: Int
+    let elapsedWindowFraction: Double
     let windowDuration: String
     let centerCaption: String
     let resetText: String
+    let resetAt: Date?
     let checkedAt: Date
 }
 
@@ -90,9 +91,10 @@ private struct WidgetSettings {
 private final class PieView: NSView {
     var snapshot = UsageSnapshot(sourceName: "Codex", usedPercent: 0, remainingPercent: 100,
                                  dayCount: 7,
-                                 elapsedDayCount: 0,
+                                 elapsedWindowFraction: 0,
                                  windowDuration: "7 days", centerCaption: "7 day window",
                                  resetText: "Loading…",
+                                 resetAt: nil,
                                  checkedAt: Date()) {
         didSet { needsDisplay = true }
     }
@@ -123,13 +125,22 @@ private final class PieView: NSView {
                           color: NSColor.black.withAlphaComponent(0.25).cgColor)
 
         for index in 0..<count {
-            let isElapsed = index < snapshot.elapsedDayCount
             let segmentStart = startAt + CGFloat(index) * segmentAngle + gap
             let segmentEnd = startAt + CGFloat(index + 1) * segmentAngle - gap
             context.addPath(ringPath(center: center, innerRadius: innerRadius,
                                      outerRadius: outerRadius, start: segmentStart, end: segmentEnd))
-            context.setFillColor((isElapsed ? elapsedSectionColor : sectionColor).cgColor)
+            context.setFillColor(sectionColor.cgColor)
             context.fillPath()
+
+            let elapsedSegments = CGFloat(snapshot.elapsedWindowFraction) * CGFloat(count)
+            let elapsedFraction = min(1, max(0, elapsedSegments - CGFloat(index)))
+            if elapsedFraction > 0 {
+                let elapsedEnd = segmentStart + (segmentEnd - segmentStart) * elapsedFraction
+                context.addPath(ringPath(center: center, innerRadius: innerRadius,
+                                         outerRadius: outerRadius, start: segmentStart, end: elapsedEnd))
+                context.setFillColor(elapsedSectionColor.cgColor)
+                context.fillPath()
+            }
 
             let filledSegments = CGFloat(snapshot.usedPercent / 100) * CGFloat(count)
             let fraction = min(1, max(0, filledSegments - CGFloat(index)))
@@ -137,8 +148,17 @@ private final class PieView: NSView {
                 let fillEnd = segmentStart + (segmentEnd - segmentStart) * fraction
                 context.addPath(ringPath(center: center, innerRadius: innerRadius,
                                          outerRadius: outerRadius, start: segmentStart, end: fillEnd))
-                context.setFillColor((isElapsed ? elapsedFillColor : fillColor).cgColor)
+                context.setFillColor(fillColor.cgColor)
                 context.fillPath()
+
+                let elapsedFillFraction = min(fraction, elapsedFraction)
+                if elapsedFillFraction > 0 {
+                    let elapsedFillEnd = segmentStart + (segmentEnd - segmentStart) * elapsedFillFraction
+                    context.addPath(ringPath(center: center, innerRadius: innerRadius,
+                                             outerRadius: outerRadius, start: segmentStart, end: elapsedFillEnd))
+                    context.setFillColor(elapsedFillColor.cgColor)
+                    context.fillPath()
+                }
             }
         }
         context.restoreGState()
@@ -203,6 +223,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private var settings = WidgetSettings()
     private var currentSource = UsageSource(rawValue: UserDefaults.standard.string(forKey: "usageSource") ?? "") ?? .codex
     private var pollTimer: Timer?
+    private var resetRefreshTimer: Timer?
     private var lastRefreshAt: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -570,7 +591,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     @objc private func refreshUsageIfStale() {
-        guard lastRefreshAt.map({ Date().timeIntervalSince($0) >= settings.pollIntervalSeconds }) ?? true else {
+        let now = Date()
+        let resetIsDue = pieView.snapshot.resetAt.map { $0 <= now } ?? false
+        guard resetIsDue || lastRefreshAt.map({ now.timeIntervalSince($0) >= settings.pollIntervalSeconds }) ?? true else {
             return
         }
         refreshUsage()
@@ -583,10 +606,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                          usedPercent: previous.usedPercent,
                                          remainingPercent: previous.remainingPercent,
                                          dayCount: previous.dayCount,
-                                         elapsedDayCount: previous.elapsedDayCount,
+                                         elapsedWindowFraction: previous.elapsedWindowFraction,
                                          windowDuration: previous.windowDuration,
                                          centerCaption: previous.centerCaption,
                                          resetText: "Refreshing…",
+                                         resetAt: previous.resetAt,
                                          checkedAt: previous.checkedAt)
         let snapshot = readUsage()
         let fallbackDays: Int
@@ -597,11 +621,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         pieView.snapshot = snapshot ?? UsageSnapshot(sourceName: currentSource.displayName,
                                                      usedPercent: 0, remainingPercent: 100,
-                                                     dayCount: fallbackDays, elapsedDayCount: 0,
+                                                     dayCount: fallbackDays, elapsedWindowFraction: 0,
                                                      windowDuration: "\(fallbackDays) days",
                                                      centerCaption: currentSource == .deepseek ? "balance\nunavailable" : "\(fallbackDays) day window",
                                                      resetText: "Usage unavailable",
+                                                     resetAt: nil,
                                                      checkedAt: Date())
+        scheduleResetRefresh(for: pieView.snapshot.resetAt)
         updateStatusItem()
     }
 
@@ -668,17 +694,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let minutes = primary["windowMinutes"] as? Double ?? 10_080
         let days = max(1, Int((minutes / 1_440).rounded()))
         let duration = primary["windowDuration"] as? String ?? "\(days) days"
-        let reset = primary["resetsAtLocal"] as? String ?? "Reset unknown"
         let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
         let resetAt = (primary["resetsAt"] as? String).flatMap(parseISO8601)
         let windowSeconds = max(1, minutes * 60)
         let elapsedSeconds = resetAt.map { windowSeconds - max(0, $0.timeIntervalSince(checkedAt)) } ?? 0
-        let elapsedDays = min(days, max(0, Int(floor(elapsedSeconds / (windowSeconds / Double(days))))))
+        let elapsedFraction = min(1, max(0, elapsedSeconds / windowSeconds))
+        let resetText = resetAt.map { formattedReset($0, relativeTo: checkedAt) }
+            ?? (primary["resetsAtLocal"] as? String).map(shortReset)
+            ?? "Reset unknown"
         return UsageSnapshot(sourceName: currentSource.displayName,
                              usedPercent: used, remainingPercent: remaining, dayCount: days,
-                             elapsedDayCount: elapsedDays,
+                             elapsedWindowFraction: elapsedFraction,
                              windowDuration: duration, centerCaption: "\(days) day window",
-                             resetText: shortReset(reset),
+                             resetText: resetText,
+                             resetAt: resetAt,
                              checkedAt: checkedAt)
     }
 
@@ -698,10 +727,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         return UsageSnapshot(sourceName: currentSource.displayName,
                              usedPercent: usedPercent, remainingPercent: remainingPercent,
-                             dayCount: 30, elapsedDayCount: 29,
+                             dayCount: 30, elapsedWindowFraction: 29.0 / 30.0,
                              windowDuration: "30 rolling days",
                              centerCaption: "30 day window",
                              resetText: "\(spentText) spent · \(remainingText) remaining",
+                             resetAt: nil,
                              checkedAt: checkedAt)
     }
 
@@ -723,10 +753,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         return UsageSnapshot(sourceName: currentSource.displayName,
                              usedPercent: usedPercent, remainingPercent: remainingPercent,
-                             dayCount: 1, elapsedDayCount: 0,
+                             dayCount: 1, elapsedWindowFraction: 0,
                              windowDuration: "Prepaid balance",
                              centerCaption: "\(Int(remainingPercent.rounded()))% remaining",
                              resetText: "\(spentText) used · \(remainingText) remaining",
+                             resetAt: nil,
                              checkedAt: checkedAt)
     }
 
@@ -887,6 +918,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func shortReset(_ value: String) -> String {
         guard let comma = value.firstIndex(of: ",") else { return value }
         return "resets " + value[..<comma].lowercased()
+    }
+
+    private func formattedReset(_ resetAt: Date, relativeTo checkedAt: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .medium
+        if Calendar.current.isDate(resetAt, inSameDayAs: checkedAt) {
+            return "resets today at \(formatter.string(from: resetAt))"
+        }
+        formatter.dateStyle = .medium
+        return "resets \(formatter.string(from: resetAt).lowercased())"
+    }
+
+    private func scheduleResetRefresh(for resetAt: Date?) {
+        resetRefreshTimer?.invalidate()
+        guard let resetAt, resetAt > Date() else { return }
+        resetRefreshTimer = Timer(fireAt: resetAt, interval: 0, target: self,
+                                  selector: #selector(refreshUsage), userInfo: nil, repeats: false)
+        RunLoop.main.add(resetRefreshTimer!, forMode: .common)
     }
 
     private func updateStatusItem() {
