@@ -686,12 +686,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         guard
               let limits = json["limits"] as? [[String: Any]],
-              let first = limits.first,
-              let primary = first["primary"] as? [String: Any] else { return nil }
+              let first = limits.first else { return nil }
 
-        let used = primary["usedPercent"] as? Double ?? 0
-        let remaining = primary["remainingPercent"] as? Double ?? max(0, 100 - used)
-        let minutes = primary["windowMinutes"] as? Double ?? 10_080
+        let windows = ["primary", "secondary"].compactMap { first[$0] as? [String: Any] }
+        guard let selectedWindow = windows.max(by: {
+            ($0["windowMinutes"] as? Double ?? 0) < ($1["windowMinutes"] as? Double ?? 0)
+        }) else { return nil }
+
+        let used = selectedWindow["usedPercent"] as? Double ?? 0
+        let remaining = selectedWindow["remainingPercent"] as? Double ?? max(0, 100 - used)
+        let minutes = selectedWindow["windowMinutes"] as? Double ?? 10_080
         let days = max(1, Int((minutes / 1_440).rounded()))
         let segmentCount: Int
         if minutes < 1_440 {
@@ -699,22 +703,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         } else {
             segmentCount = days
         }
-        let duration = primary["windowDuration"] as? String ?? "\(days) days"
+        let duration = selectedWindow["windowDuration"] as? String ?? "\(days) days"
         let centerCaption: String
         if minutes < 1_440, minutes.truncatingRemainder(dividingBy: 60) == 0 {
             centerCaption = "\(Int(minutes / 60)) hour window"
         } else if minutes < 1_440 {
             centerCaption = "\(Int(minutes.rounded())) minute window"
         } else {
-            centerCaption = "\(days) day window"
+            centerCaption = "\(days) day weekly limit"
         }
         let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
-        let resetAt = (primary["resetsAt"] as? String).flatMap(parseISO8601)
+        let resetAt = (selectedWindow["resetsAt"] as? String).flatMap(parseISO8601)
         let windowSeconds = max(1, minutes * 60)
         let elapsedSeconds = resetAt.map { windowSeconds - max(0, $0.timeIntervalSince(checkedAt)) } ?? 0
         let elapsedFraction = min(1, max(0, elapsedSeconds / windowSeconds))
-        let resetText = resetAt.map { formattedReset($0, relativeTo: checkedAt) }
-            ?? (primary["resetsAtLocal"] as? String).map(shortReset)
+        let resetText = resetAt.map {
+            formattedReset($0, relativeTo: checkedAt, windowSeconds: windowSeconds)
+        }
+            ?? (selectedWindow["resetsAtLocal"] as? String).map(shortReset)
             ?? "Reset unknown"
         return UsageSnapshot(sourceName: currentSource.displayName,
                              usedPercent: used, remainingPercent: remaining, dayCount: segmentCount,
@@ -934,14 +940,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         return "resets " + value[..<comma].lowercased()
     }
 
-    private func formattedReset(_ resetAt: Date, relativeTo checkedAt: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .medium
-        if Calendar.current.isDate(resetAt, inSameDayAs: checkedAt) {
-            return "resets today at \(formatter.string(from: resetAt))"
-        }
-        formatter.dateStyle = .medium
-        return "resets \(formatter.string(from: resetAt).lowercased())"
+    private func formattedReset(_ resetAt: Date, relativeTo checkedAt: Date,
+                                windowSeconds: TimeInterval) -> String {
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm:ss a z"
+        let dateTimeFormatter = DateFormatter()
+        dateTimeFormatter.dateFormat = "MMM d, h:mm:ss a z"
+        let startedAt = resetAt.addingTimeInterval(-windowSeconds)
+        let startText = Calendar.current.isDate(startedAt, inSameDayAs: checkedAt)
+            ? timeFormatter.string(from: startedAt)
+            : dateTimeFormatter.string(from: startedAt)
+        let resetText = Calendar.current.isDate(resetAt, inSameDayAs: checkedAt)
+            ? timeFormatter.string(from: resetAt)
+            : dateTimeFormatter.string(from: resetAt)
+        return "started \(startText) · resets \(resetText)"
     }
 
     private func scheduleResetRefresh(for resetAt: Date?) {
