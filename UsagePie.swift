@@ -67,6 +67,15 @@ private enum UsageSource: String, CaseIterable {
 }
 
 private struct UsageSnapshot {
+    struct InnerWindow {
+        let usedPercent: Double
+        let segmentCount: Int
+        let elapsedWindowFraction: Double
+        let duration: String
+        let resetText: String
+        let resetAt: Date?
+    }
+
     let sourceName: String
     let usedPercent: Double
     let remainingPercent: Double
@@ -76,6 +85,7 @@ private struct UsageSnapshot {
     let centerCaption: String
     let resetText: String
     let resetAt: Date?
+    let innerWindow: InnerWindow?
     let checkedAt: Date
 }
 
@@ -95,6 +105,7 @@ private final class PieView: NSView {
                                  windowDuration: "7 days", centerCaption: "7 day window",
                                  resetText: "Loading…",
                                  resetAt: nil,
+                                 innerWindow: nil,
                                  checkedAt: Date()) {
         didSet { needsDisplay = true }
     }
@@ -110,19 +121,46 @@ private final class PieView: NSView {
 
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         let outerRadius = min(bounds.width, bounds.height) * 0.42
-        let innerRadius = outerRadius * 0.59
-        let count = max(1, snapshot.dayCount)
+        let innerRadius = outerRadius * (snapshot.innerWindow == nil ? 0.59 : 0.72)
+        context.saveGState()
+        context.setShadow(offset: CGSize(width: 0, height: -3), blur: 10,
+                          color: NSColor.black.withAlphaComponent(0.25).cgColor)
+        drawRing(context: context, center: center, innerRadius: innerRadius,
+                 outerRadius: outerRadius, count: snapshot.dayCount,
+                 usedPercent: snapshot.usedPercent,
+                 elapsedWindowFraction: snapshot.elapsedWindowFraction,
+                 color: fillColor)
+        context.restoreGState()
+
+        var centerRadius = innerRadius
+        if let innerWindow = snapshot.innerWindow {
+            let innerOuterRadius = innerRadius - 5
+            let innerInnerRadius = innerOuterRadius * 0.56
+            let innerColor = fillColor.blended(withFraction: 0.18, of: .black) ?? fillColor
+            context.saveGState()
+            drawRing(context: context, center: center, innerRadius: innerInnerRadius,
+                     outerRadius: innerOuterRadius, count: innerWindow.segmentCount,
+                     usedPercent: innerWindow.usedPercent,
+                     elapsedWindowFraction: innerWindow.elapsedWindowFraction,
+                     color: innerColor)
+            context.restoreGState()
+            centerRadius = innerInnerRadius
+        }
+
+        drawCenter(center: center, radius: centerRadius)
+    }
+
+    private func drawRing(context: CGContext, center: CGPoint, innerRadius: CGFloat,
+                          outerRadius: CGFloat, count rawCount: Int, usedPercent: Double,
+                          elapsedWindowFraction: Double, color: NSColor) {
+        let count = max(1, rawCount)
         let fullTurn = CGFloat.pi * 2
         let segmentAngle = fullTurn / CGFloat(count)
         let gap: CGFloat = count == 1 ? 0 : min(0.035, segmentAngle * 0.10)
         let startAt = -CGFloat.pi / 2
         let sectionColor = NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.91, alpha: 0.82)
         let elapsedSectionColor = sectionColor.blended(withFraction: 0.35, of: .white) ?? sectionColor
-        let elapsedFillColor = fillColor.blended(withFraction: 0.22, of: .white) ?? fillColor
-
-        context.saveGState()
-        context.setShadow(offset: CGSize(width: 0, height: -3), blur: 10,
-                          color: NSColor.black.withAlphaComponent(0.25).cgColor)
+        let elapsedFillColor = color.blended(withFraction: 0.22, of: .white) ?? color
 
         for index in 0..<count {
             let segmentStart = startAt + CGFloat(index) * segmentAngle + gap
@@ -132,7 +170,7 @@ private final class PieView: NSView {
             context.setFillColor(sectionColor.cgColor)
             context.fillPath()
 
-            let elapsedSegments = CGFloat(snapshot.elapsedWindowFraction) * CGFloat(count)
+            let elapsedSegments = CGFloat(elapsedWindowFraction) * CGFloat(count)
             let elapsedFraction = min(1, max(0, elapsedSegments - CGFloat(index)))
             if elapsedFraction > 0 {
                 let elapsedEnd = segmentStart + (segmentEnd - segmentStart) * elapsedFraction
@@ -142,13 +180,13 @@ private final class PieView: NSView {
                 context.fillPath()
             }
 
-            let filledSegments = CGFloat(snapshot.usedPercent / 100) * CGFloat(count)
+            let filledSegments = CGFloat(usedPercent / 100) * CGFloat(count)
             let fraction = min(1, max(0, filledSegments - CGFloat(index)))
             if fraction > 0 {
                 let fillEnd = segmentStart + (segmentEnd - segmentStart) * fraction
                 context.addPath(ringPath(center: center, innerRadius: innerRadius,
                                          outerRadius: outerRadius, start: segmentStart, end: fillEnd))
-                context.setFillColor(fillColor.cgColor)
+                context.setFillColor(color.cgColor)
                 context.fillPath()
 
                 let elapsedFillFraction = min(fraction, elapsedFraction)
@@ -161,9 +199,6 @@ private final class PieView: NSView {
                 }
             }
         }
-        context.restoreGState()
-
-        drawCenter(center: center, innerRadius: innerRadius)
     }
 
     private func ringPath(center: CGPoint, innerRadius: CGFloat, outerRadius: CGFloat,
@@ -175,17 +210,25 @@ private final class PieView: NSView {
         return path
     }
 
-    private func drawCenter(center: CGPoint, innerRadius: CGFloat) {
-        let centerRect = CGRect(x: center.x - innerRadius + 4, y: center.y - innerRadius + 4,
-                                width: (innerRadius - 4) * 2, height: (innerRadius - 4) * 2)
+    private func drawCenter(center: CGPoint, radius: CGFloat) {
+        let centerRect = CGRect(x: center.x - radius + 3, y: center.y - radius + 3,
+                                width: (radius - 3) * 2, height: (radius - 3) * 2)
         NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.91, alpha: 0.90).setFill()
         NSBezierPath(ovalIn: centerRect).fill()
 
-        let percent = "\(Int(snapshot.usedPercent.rounded()))%"
-        drawText(percent, size: 26, weight: .bold,
-                 color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 11)
-        drawText(snapshot.centerCaption, size: 10, weight: .semibold,
-                 color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 13)
+        if let innerWindow = snapshot.innerWindow {
+            let percentages = "\(Int(snapshot.usedPercent.rounded()))% · \(Int(innerWindow.usedPercent.rounded()))%"
+            drawText(percentages, size: 14, weight: .bold,
+                     color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 7)
+            drawText("7d outer · 5h inner", size: 8, weight: .semibold,
+                     color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 8)
+        } else {
+            let percent = "\(Int(snapshot.usedPercent.rounded()))%"
+            drawText(percent, size: 26, weight: .bold,
+                     color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 11)
+            drawText(snapshot.centerCaption, size: 10, weight: .semibold,
+                     color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 13)
+        }
     }
 
     private func drawText(_ text: String, size: CGFloat, weight: NSFont.Weight,
@@ -298,6 +341,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         reset.tag = 101
         reset.isEnabled = false
         menu.addItem(reset)
+        let innerReset = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        innerReset.tag = 102
+        innerReset.isEnabled = false
+        innerReset.isHidden = true
+        menu.addItem(innerReset)
         menu.addItem(.separator())
         let sourceItem = NSMenuItem(title: "Source", action: nil, keyEquivalent: "")
         let sourceMenu = NSMenu(title: "Source")
@@ -332,7 +380,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             summary.title = menuSummary(for: pieView.snapshot)
         }
         if let reset = menu.item(withTag: 101) {
-            reset.title = pieView.snapshot.resetText
+            reset.title = pieView.snapshot.innerWindow == nil
+                ? pieView.snapshot.resetText
+                : "7-day: \(pieView.snapshot.resetText)"
+        }
+        if let innerReset = menu.item(withTag: 102) {
+            innerReset.isHidden = pieView.snapshot.innerWindow == nil
+            innerReset.title = pieView.snapshot.innerWindow.map { "5-hour: \($0.resetText)" } ?? ""
         }
         if let sourceMenu = menu.items.first(where: { $0.submenu?.title == "Source" })?.submenu {
             for item in sourceMenu.items {
@@ -592,7 +646,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     @objc private func refreshUsageIfStale() {
         let now = Date()
-        let resetIsDue = pieView.snapshot.resetAt.map { $0 <= now } ?? false
+        let resetIsDue = [pieView.snapshot.resetAt, pieView.snapshot.innerWindow?.resetAt]
+            .compactMap { $0 }
+            .contains { $0 <= now }
         guard resetIsDue || lastRefreshAt.map({ now.timeIntervalSince($0) >= settings.pollIntervalSeconds }) ?? true else {
             return
         }
@@ -611,6 +667,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                          centerCaption: previous.centerCaption,
                                          resetText: "Refreshing…",
                                          resetAt: previous.resetAt,
+                                         innerWindow: previous.innerWindow,
                                          checkedAt: previous.checkedAt)
         let snapshot = readUsage()
         let fallbackDays: Int
@@ -626,8 +683,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                                      centerCaption: currentSource == .deepseek ? "balance\nunavailable" : "\(fallbackDays) day window",
                                                      resetText: "Usage unavailable",
                                                      resetAt: nil,
+                                                     innerWindow: nil,
                                                      checkedAt: Date())
-        scheduleResetRefresh(for: pieView.snapshot.resetAt)
+        scheduleResetRefresh(for: pieView.snapshot)
         updateStatusItem()
     }
 
@@ -688,10 +746,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
               let limits = json["limits"] as? [[String: Any]],
               let first = limits.first else { return nil }
 
-        let windows = ["primary", "secondary"].compactMap { first[$0] as? [String: Any] }
-        guard let selectedWindow = windows.max(by: {
-            ($0["windowMinutes"] as? Double ?? 0) < ($1["windowMinutes"] as? Double ?? 0)
-        }) else { return nil }
+        let windows = ["primary", "secondary"]
+            .compactMap { first[$0] as? [String: Any] }
+            .sorted {
+                ($0["windowMinutes"] as? Double ?? 0) < ($1["windowMinutes"] as? Double ?? 0)
+            }
+        guard let selectedWindow = windows.last else { return nil }
 
         let used = selectedWindow["usedPercent"] as? Double ?? 0
         let remaining = selectedWindow["remainingPercent"] as? Double ?? max(0, 100 - used)
@@ -722,12 +782,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
             ?? (selectedWindow["resetsAtLocal"] as? String).map(shortReset)
             ?? "Reset unknown"
+        let innerWindow: UsageSnapshot.InnerWindow?
+        if windows.count > 1, let smallerWindow = windows.first {
+            let innerMinutes = max(1, smallerWindow["windowMinutes"] as? Double ?? 300)
+            let innerWindowSeconds = innerMinutes * 60
+            let innerResetAt = (smallerWindow["resetsAt"] as? String).flatMap(parseISO8601)
+            let innerElapsedSeconds = innerResetAt.map {
+                innerWindowSeconds - max(0, $0.timeIntervalSince(checkedAt))
+            } ?? 0
+            let innerResetText = innerResetAt.map {
+                formattedReset($0, relativeTo: checkedAt, windowSeconds: innerWindowSeconds)
+            }
+                ?? (smallerWindow["resetsAtLocal"] as? String).map(shortReset)
+                ?? "Reset unknown"
+            innerWindow = UsageSnapshot.InnerWindow(
+                usedPercent: smallerWindow["usedPercent"] as? Double ?? 0,
+                segmentCount: max(1, min(12, Int((innerMinutes / 60).rounded()))),
+                elapsedWindowFraction: min(1, max(0, innerElapsedSeconds / innerWindowSeconds)),
+                duration: smallerWindow["windowDuration"] as? String ?? "\(Int(innerMinutes)) minutes",
+                resetText: innerResetText,
+                resetAt: innerResetAt
+            )
+        } else {
+            innerWindow = nil
+        }
         return UsageSnapshot(sourceName: currentSource.displayName,
                              usedPercent: used, remainingPercent: remaining, dayCount: segmentCount,
                              elapsedWindowFraction: elapsedFraction,
                              windowDuration: duration, centerCaption: centerCaption,
                              resetText: resetText,
                              resetAt: resetAt,
+                             innerWindow: innerWindow,
                              checkedAt: checkedAt)
     }
 
@@ -752,6 +837,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              centerCaption: "30 day window",
                              resetText: "\(spentText) spent · \(remainingText) remaining",
                              resetAt: nil,
+                             innerWindow: nil,
                              checkedAt: checkedAt)
     }
 
@@ -778,6 +864,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              centerCaption: "\(Int(remainingPercent.rounded()))% remaining",
                              resetText: "\(spentText) used · \(remainingText) remaining",
                              resetAt: nil,
+                             innerWindow: nil,
                              checkedAt: checkedAt)
     }
 
@@ -956,9 +1043,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         return "started \(startText) · resets \(resetText)"
     }
 
-    private func scheduleResetRefresh(for resetAt: Date?) {
+    private func scheduleResetRefresh(for snapshot: UsageSnapshot) {
         resetRefreshTimer?.invalidate()
-        guard let resetAt, resetAt > Date() else { return }
+        let now = Date()
+        let resetDates = [snapshot.resetAt, snapshot.innerWindow?.resetAt]
+            .compactMap { $0 }
+            .filter { $0 > now }
+        guard let resetAt = resetDates.min() else { return }
         resetRefreshTimer = Timer(fireAt: resetAt.addingTimeInterval(1), interval: 0, target: self,
                                   selector: #selector(refreshUsage), userInfo: nil, repeats: false)
         RunLoop.main.add(resetRefreshTimer!, forMode: .common)
@@ -969,18 +1060,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func menuSummary(for snapshot: UsageSnapshot) -> String {
-        "\(snapshot.sourceName): \(Int(snapshot.usedPercent.rounded()))% used · \(Int(snapshot.remainingPercent.rounded()))% remaining"
+        if let innerWindow = snapshot.innerWindow {
+            return "\(snapshot.sourceName): \(Int(snapshot.usedPercent.rounded()))% weekly · \(Int(innerWindow.usedPercent.rounded()))% 5-hour"
+        }
+        return "\(snapshot.sourceName): \(Int(snapshot.usedPercent.rounded()))% used · \(Int(snapshot.remainingPercent.rounded()))% remaining"
     }
 
     private func usageToolTip(for snapshot: UsageSnapshot) -> String {
         let checked = DateFormatter.localizedString(from: snapshot.checkedAt,
                                                     dateStyle: .none,
                                                     timeStyle: .short)
-        return [
-            "\(snapshot.sourceName): \(Int(snapshot.usedPercent.rounded()))% used · \(Int(snapshot.remainingPercent.rounded()))% remaining",
-            "\(snapshot.windowDuration) · \(snapshot.resetText)",
-            "Checked \(checked)",
-        ].joined(separator: "\n")
+        var lines = [menuSummary(for: snapshot),
+                     "\(snapshot.windowDuration) · \(snapshot.resetText)"]
+        if let innerWindow = snapshot.innerWindow {
+            lines.append("\(innerWindow.duration) · \(innerWindow.resetText)")
+        }
+        lines.append("Checked \(checked)")
+        return lines.joined(separator: "\n")
     }
 
     private func makeStatusIcon() -> NSImage {
