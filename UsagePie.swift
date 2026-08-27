@@ -693,7 +693,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let remaining = primary["remainingPercent"] as? Double ?? max(0, 100 - used)
         let minutes = primary["windowMinutes"] as? Double ?? 10_080
         let days = max(1, Int((minutes / 1_440).rounded()))
+        let segmentCount: Int
+        if minutes < 1_440 {
+            segmentCount = max(1, min(12, Int((minutes / 60).rounded())))
+        } else {
+            segmentCount = days
+        }
         let duration = primary["windowDuration"] as? String ?? "\(days) days"
+        let centerCaption: String
+        if minutes < 1_440, minutes.truncatingRemainder(dividingBy: 60) == 0 {
+            centerCaption = "\(Int(minutes / 60)) hour window"
+        } else if minutes < 1_440 {
+            centerCaption = "\(Int(minutes.rounded())) minute window"
+        } else {
+            centerCaption = "\(days) day window"
+        }
         let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
         let resetAt = (primary["resetsAt"] as? String).flatMap(parseISO8601)
         let windowSeconds = max(1, minutes * 60)
@@ -703,9 +717,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             ?? (primary["resetsAtLocal"] as? String).map(shortReset)
             ?? "Reset unknown"
         return UsageSnapshot(sourceName: currentSource.displayName,
-                             usedPercent: used, remainingPercent: remaining, dayCount: days,
+                             usedPercent: used, remainingPercent: remaining, dayCount: segmentCount,
                              elapsedWindowFraction: elapsedFraction,
-                             windowDuration: duration, centerCaption: "\(days) day window",
+                             windowDuration: duration, centerCaption: centerCaption,
                              resetText: resetText,
                              resetAt: resetAt,
                              checkedAt: checkedAt)
@@ -933,7 +947,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     private func scheduleResetRefresh(for resetAt: Date?) {
         resetRefreshTimer?.invalidate()
         guard let resetAt, resetAt > Date() else { return }
-        resetRefreshTimer = Timer(fireAt: resetAt, interval: 0, target: self,
+        resetRefreshTimer = Timer(fireAt: resetAt.addingTimeInterval(1), interval: 0, target: self,
                                   selector: #selector(refreshUsage), userInfo: nil, repeats: false)
         RunLoop.main.add(resetRefreshTimer!, forMode: .common)
     }
