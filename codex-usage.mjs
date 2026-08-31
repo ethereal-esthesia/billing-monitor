@@ -84,9 +84,15 @@ function formatUsage(response = {}) {
   const snapshots = response.rateLimitsByLimitId
     ? Object.entries(response.rateLimitsByLimitId)
     : [[response.rateLimits?.limitId || "codex", response.rateLimits]];
+  const availableResetCount = Number(
+    response.rateLimitResetCredits?.availableCount ?? 0,
+  );
 
   return {
     checkedAt: new Date().toISOString(),
+    availableResetCount: Number.isFinite(availableResetCount)
+      ? Math.max(0, availableResetCount)
+      : 0,
     limits: snapshots
       .filter(([, snapshot]) => snapshot)
       .map(([id, snapshot]) => ({

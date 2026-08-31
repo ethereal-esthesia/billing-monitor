@@ -83,6 +83,7 @@ private struct UsageSnapshot {
     let elapsedWindowFraction: Double
     let windowDuration: String
     let centerCaption: String
+    let resetAvailabilityText: String?
     let resetText: String
     let resetAt: Date?
     let innerWindow: InnerWindow?
@@ -103,6 +104,7 @@ private final class PieView: NSView {
                                  dayCount: 7,
                                  elapsedWindowFraction: 0,
                                  windowDuration: "7 days", centerCaption: "7 day window",
+                                 resetAvailabilityText: nil,
                                  resetText: "Loading…",
                                  resetAt: nil,
                                  innerWindow: nil,
@@ -137,6 +139,11 @@ private final class PieView: NSView {
                  color: fillColor)
         context.restoreGState()
 
+        drawCurrentTimeMarker(context: context, center: center,
+                              innerRadius: outerRingInnerRadius,
+                              outerRadius: outerRadius,
+                              elapsedWindowFraction: snapshot.elapsedWindowFraction)
+
         let centerRadius = originalInnerRadius
         if let innerWindow = snapshot.innerWindow {
             let innerOuterRadius = middleRadius - divider
@@ -148,9 +155,41 @@ private final class PieView: NSView {
                      elapsedWindowFraction: innerWindow.elapsedWindowFraction,
                      color: innerColor)
             context.restoreGState()
+
+            drawCurrentTimeMarker(context: context, center: center,
+                                  innerRadius: originalInnerRadius,
+                                  outerRadius: innerOuterRadius,
+                                  elapsedWindowFraction: innerWindow.elapsedWindowFraction)
         }
 
         drawCenter(center: center, radius: centerRadius)
+    }
+
+    private func drawCurrentTimeMarker(context: CGContext, center: CGPoint,
+                                       innerRadius: CGFloat, outerRadius: CGFloat,
+                                       elapsedWindowFraction: Double) {
+        let fraction = CGFloat(min(1, max(0, elapsedWindowFraction)))
+        let angle = -CGFloat.pi / 2 + fraction * CGFloat.pi * 2
+        let inset: CGFloat = 1
+        let start = CGPoint(x: center.x + cos(angle) * (innerRadius + inset),
+                            y: center.y + sin(angle) * (innerRadius + inset))
+        let end = CGPoint(x: center.x + cos(angle) * (outerRadius - inset),
+                          y: center.y + sin(angle) * (outerRadius - inset))
+
+        context.saveGState()
+        context.setLineCap(.round)
+        context.setStrokeColor(NSColor.white.withAlphaComponent(0.92).cgColor)
+        context.setLineWidth(5)
+        context.move(to: start)
+        context.addLine(to: end)
+        context.strokePath()
+
+        context.setStrokeColor(NSColor(calibratedWhite: 0.16, alpha: 0.95).cgColor)
+        context.setLineWidth(2.25)
+        context.move(to: start)
+        context.addLine(to: end)
+        context.strokePath()
+        context.restoreGState()
     }
 
     private func drawRing(context: CGContext, center: CGPoint, innerRadius: CGFloat,
@@ -222,9 +261,13 @@ private final class PieView: NSView {
         if let innerWindow = snapshot.innerWindow {
             let percentages = "\(Int(snapshot.usedPercent.rounded()))% · \(Int(innerWindow.usedPercent.rounded()))%"
             drawText(percentages, size: 18, weight: .bold,
-                     color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 9)
+                     color: NSColor(calibratedWhite: 0.20, alpha: 1), y: center.y + 18)
             drawText("7d outer · 5h inner", size: 9, weight: .semibold,
-                     color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 10)
+                     color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y)
+            if let resetAvailabilityText = snapshot.resetAvailabilityText {
+                drawText(resetAvailabilityText, size: 9, weight: .semibold,
+                         color: NSColor(calibratedWhite: 0.34, alpha: 1), y: center.y - 18)
+            }
         } else {
             let percent = "\(Int(snapshot.usedPercent.rounded()))%"
             drawText(percent, size: 26, weight: .bold,
@@ -668,6 +711,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                          elapsedWindowFraction: previous.elapsedWindowFraction,
                                          windowDuration: previous.windowDuration,
                                          centerCaption: previous.centerCaption,
+                                         resetAvailabilityText: previous.resetAvailabilityText,
                                          resetText: "Refreshing…",
                                          resetAt: previous.resetAt,
                                          innerWindow: previous.innerWindow,
@@ -684,6 +728,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                                                      dayCount: fallbackDays, elapsedWindowFraction: 0,
                                                      windowDuration: "\(fallbackDays) days",
                                                      centerCaption: currentSource == .deepseek ? "balance\nunavailable" : "\(fallbackDays) day window",
+                                                     resetAvailabilityText: nil,
                                                      resetText: "Usage unavailable",
                                                      resetAt: nil,
                                                      innerWindow: nil,
@@ -785,6 +830,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
             ?? (selectedWindow["resetsAtLocal"] as? String).map(shortReset)
             ?? "Reset unknown"
+        let availableResetCount = max(0, json["availableResetCount"] as? Int ?? 0)
+        let resetAvailabilityText = availableResetCount == 1
+            ? "1 reset available"
+            : "\(availableResetCount) resets available"
         let innerWindow: UsageSnapshot.InnerWindow?
         if windows.count > 1, let smallerWindow = windows.first {
             let innerMinutes = max(1, smallerWindow["windowMinutes"] as? Double ?? 300)
@@ -813,6 +862,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              usedPercent: used, remainingPercent: remaining, dayCount: segmentCount,
                              elapsedWindowFraction: elapsedFraction,
                              windowDuration: duration, centerCaption: centerCaption,
+                             resetAvailabilityText: resetAvailabilityText,
                              resetText: resetText,
                              resetAt: resetAt,
                              innerWindow: innerWindow,
@@ -838,6 +888,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              dayCount: 30, elapsedWindowFraction: 29.0 / 30.0,
                              windowDuration: "30 rolling days",
                              centerCaption: "30 day window",
+                             resetAvailabilityText: nil,
                              resetText: "\(spentText) spent · \(remainingText) remaining",
                              resetAt: nil,
                              innerWindow: nil,
@@ -865,6 +916,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              dayCount: 1, elapsedWindowFraction: 0,
                              windowDuration: "Prepaid balance",
                              centerCaption: "\(Int(remainingPercent.rounded()))% remaining",
+                             resetAvailabilityText: nil,
                              resetText: "\(spentText) used · \(remainingText) remaining",
                              resetAt: nil,
                              innerWindow: nil,
