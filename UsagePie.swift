@@ -97,6 +97,7 @@ private struct WidgetSettings {
     var pollIntervalSeconds: TimeInterval = 300
     var fillColor = NSColor(srgbRed: 193 / 255, green: 233 / 255, blue: 242 / 255, alpha: 1)
     var topUpBalance: Double? = nil
+    var billingDay: Int? = nil
 }
 
 private final class PieView: NSView {
@@ -570,7 +571,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         fillColorWell.color = settings.fillColor
         fillColorField.stringValue = hexString(from: settings.fillColor)
         topUpBalanceField.stringValue = settings.topUpBalance.map { String(format: "%.2f", $0) } ?? ""
-        let showTopUpBalance = currentSource == .deepseek
+        if currentSource == .codex {
+            topUpBalanceLabel.stringValue = "Billing day (1–31)"
+            topUpBalanceField.placeholderString = "Optional"
+            topUpBalanceField.stringValue = settings.billingDay.map(String.init) ?? ""
+        } else {
+            topUpBalanceLabel.stringValue = "Initial top-up"
+            topUpBalanceField.placeholderString = "2.00"
+        }
+        let showTopUpBalance = currentSource == .deepseek || currentSource == .codex
         topUpBalanceLabel.isHidden = !showTopUpBalance
         topUpBalanceField.isHidden = !showTopUpBalance
     }
@@ -606,6 +615,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             }
             topUpBalance = value
         }
+        var billingDay: Int?
+        if currentSource == .codex {
+            let value = topUpBalanceField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                guard let day = Int(value), (1...31).contains(day) else {
+                    presentError(title: "Invalid billing day", message: "Enter a day from 1 through 31, or leave blank.")
+                    return
+                }
+                billingDay = day
+            }
+        }
         guard let destination = editableSettingsURL() else { return }
 
         let opacity = opacityPercent / 100
@@ -614,6 +634,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             "pollIntervalSeconds": pollSeconds,
             "fillColor": hexString(from: fillColor),
         ]
+        if let billingDay { payload["billingDay"] = billingDay }
         if let topUpBalance {
             payload["topUpBalance"] = topUpBalance
         }
@@ -628,7 +649,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             settings = WidgetSettings(opacity: opacity,
                                       pollIntervalSeconds: pollSeconds,
                                       fillColor: fillColor,
-                                      topUpBalance: topUpBalance)
+                                      topUpBalance: topUpBalance, billingDay: billingDay)
             panel.alphaValue = settings.opacity
             pieView.fillColor = settings.fillColor
             schedulePolling()
@@ -821,12 +842,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             centerCaption = "\(days) day weekly limit"
         }
         let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
-        let resetAt = (selectedWindow["resetsAt"] as? String).flatMap(parseISO8601)
+        let reportedResetAt = (selectedWindow["resetsAt"] as? String).flatMap(parseISO8601)
+        let resetAt = billingCappedReset(reportedResetAt, checkedAt: checkedAt)
         let windowSeconds = max(1, minutes * 60)
         let elapsedSeconds = resetAt.map { windowSeconds - max(0, $0.timeIntervalSince(checkedAt)) } ?? 0
         let elapsedFraction = min(1, max(0, elapsedSeconds / windowSeconds))
         let resetText = resetAt.map {
-            formattedReset($0, relativeTo: checkedAt, windowSeconds: windowSeconds)
+            formattedReset($0, relativeTo: checkedAt, windowSeconds: windowSeconds, reportedResetAt: reportedResetAt)
         }
             ?? (selectedWindow["resetsAtLocal"] as? String).map(shortReset)
             ?? "Reset unknown"
@@ -838,12 +860,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         if windows.count > 1, let smallerWindow = windows.first {
             let innerMinutes = max(1, smallerWindow["windowMinutes"] as? Double ?? 300)
             let innerWindowSeconds = innerMinutes * 60
-            let innerResetAt = (smallerWindow["resetsAt"] as? String).flatMap(parseISO8601)
+            let innerReportedResetAt = (smallerWindow["resetsAt"] as? String).flatMap(parseISO8601)
+            let innerResetAt = billingCappedReset(innerReportedResetAt, checkedAt: checkedAt)
             let innerElapsedSeconds = innerResetAt.map {
                 innerWindowSeconds - max(0, $0.timeIntervalSince(checkedAt))
             } ?? 0
             let innerResetText = innerResetAt.map {
-                formattedReset($0, relativeTo: checkedAt, windowSeconds: innerWindowSeconds)
+                formattedReset($0, relativeTo: checkedAt, windowSeconds: innerWindowSeconds, reportedResetAt: innerReportedResetAt)
             }
                 ?? (smallerWindow["resetsAtLocal"] as? String).map(shortReset)
                 ?? "Reset unknown"
@@ -953,7 +976,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let fillColor = color(fromHex: json["fillColor"] as? String) ?? WidgetSettings().fillColor
         let topUpBalance = (json["topUpBalance"] as? Double) ?? (json["amountPaid"] as? Double)
         return WidgetSettings(opacity: opacity, pollIntervalSeconds: pollSeconds,
-                              fillColor: fillColor, topUpBalance: topUpBalance)
+                              fillColor: fillColor, topUpBalance: topUpBalance,
+                              billingDay: (json["billingDay"] as? Int).flatMap { (1...31).contains($0) ? $0 : nil })
     }
 
     private func color(fromHex value: String?) -> NSColor? {
@@ -1082,13 +1106,28 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         return "resets " + value[..<comma].lowercased()
     }
 
+    // Calendar arithmetic keeps midnight local across DST and clamps short months.
+    private func billingCappedReset(_ reported: Date?, checkedAt: Date) -> Date? {
+        guard let day = settings.billingDay, (1...31).contains(day) else { return reported }
+        let calendar = Calendar.current
+        guard let month = calendar.dateInterval(of: .month, for: checkedAt)?.start else { return reported }
+        for offset in 0...1 {
+            guard let start = calendar.date(byAdding: .month, value: offset, to: month),
+                  let days = calendar.range(of: .day, in: .month, for: start),
+                  let date = calendar.date(byAdding: .day, value: min(day, days.count) - 1, to: start) else { continue }
+            let midnight = calendar.startOfDay(for: date)
+            if midnight > checkedAt { return reported.map { min($0, midnight) } ?? midnight }
+        }
+        return reported
+    }
+
     private func formattedReset(_ resetAt: Date, relativeTo checkedAt: Date,
-                                windowSeconds: TimeInterval) -> String {
+                                windowSeconds: TimeInterval, reportedResetAt: Date? = nil) -> String {
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm:ss a z"
         let dateTimeFormatter = DateFormatter()
         dateTimeFormatter.dateFormat = "MMM d, h:mm:ss a z"
-        let startedAt = resetAt.addingTimeInterval(-windowSeconds)
+        let startedAt = (reportedResetAt ?? resetAt).addingTimeInterval(-windowSeconds)
         let startText = Calendar.current.isDate(startedAt, inSameDayAs: checkedAt)
             ? timeFormatter.string(from: startedAt)
             : dateTimeFormatter.string(from: startedAt)
