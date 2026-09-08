@@ -573,7 +573,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         topUpBalanceField.stringValue = settings.topUpBalance.map { String(format: "%.2f", $0) } ?? ""
         if currentSource == .codex {
             topUpBalanceLabel.stringValue = "Billing day (1–31)"
-            topUpBalanceField.placeholderString = "Optional"
+            topUpBalanceField.placeholderString = "Recommended"
             topUpBalanceField.stringValue = settings.billingDay.map(String.init) ?? ""
         } else {
             topUpBalanceLabel.stringValue = "Initial top-up"
