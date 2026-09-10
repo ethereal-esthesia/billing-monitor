@@ -4,6 +4,8 @@
 const token = process.env.DEVIN_SERVICE_USER_TOKEN || process.env.DEVIN_API_KEY;
 if (!token) fail("DEVIN_SERVICE_USER_TOKEN or DEVIN_API_KEY is not set.");
 
+const orgId = process.env.DEVIN_ORG_ID || "org-cd4adc2ab67a410aa89d7db7396ab931";
+
 const configuredBase = process.env.DEVIN_BASE_URL || "https://api.devin.ai";
 let origin;
 try {
@@ -22,7 +24,7 @@ const timeout = setTimeout(() => controller.abort(), 15_000);
     const timeAfter = Math.floor(thirtyDaysAgo.getTime() / 1000);
     const timeBefore = Math.floor(now.getTime() / 1000);
 
-    const response = await fetch(new URL(`/v3/enterprise/consumption/daily?time_after=${timeAfter}&time_before=${timeBefore}`, origin), {
+    const response = await fetch(new URL(`/v3/organizations/${orgId}/consumption/daily?time_after=${timeAfter}&time_before=${timeBefore}`, origin), {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
@@ -46,6 +48,7 @@ const timeout = setTimeout(() => controller.abort(), 15_000);
       checkedAt: new Date().toISOString(),
       totalAcus,
       dailyData,
+      orgId,
       periodStart: thirtyDaysAgo.toISOString(),
       periodEnd: now.toISOString(),
     }, null, 2)}\n`);
