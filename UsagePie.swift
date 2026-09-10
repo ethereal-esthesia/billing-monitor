@@ -795,13 +795,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
            let token = keychainPassword(service: "deepseek-api-key") {
             environment["DEEPSEEK_API_KEY"] = token
         }
-        if currentSource == .devin, environment["DEVIN_PAT"] == nil, environment["DEVIN_API_KEY"] == nil,
-           let token = keychainPassword(service: "devin-pat") ?? keychainPassword(service: "devin-api-key") {
-            environment["DEVIN_PAT"] = token
-        }
-        if currentSource == .devin, environment["DEVIN_ORG_ID"] == nil,
-           let orgId = keychainPassword(service: "devin-org-id") {
-            environment["DEVIN_ORG_ID"] = orgId
+        if currentSource == .devin, environment["DEVIN_SERVICE_USER_TOKEN"] == nil, environment["DEVIN_API_KEY"] == nil,
+           let token = keychainPassword(service: "devin-service-user-token") ?? keychainPassword(service: "devin-api-key") {
+            environment["DEVIN_SERVICE_USER_TOKEN"] = token
         }
         process.environment = environment
 
