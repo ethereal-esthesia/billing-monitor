@@ -799,6 +799,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
            let token = keychainPassword(service: "devin-pat") ?? keychainPassword(service: "devin-api-key") {
             environment["DEVIN_PAT"] = token
         }
+        if currentSource == .devin, environment["DEVIN_ORG_ID"] == nil,
+           let orgId = keychainPassword(service: "devin-org-id") {
+            environment["DEVIN_ORG_ID"] = orgId
+        }
         process.environment = environment
 
         let output = Pipe()
