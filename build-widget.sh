@@ -24,10 +24,12 @@ cp "$project_dir/codex-usage.mjs" "$contents_dir/Resources/codex-usage.mjs"
 cp "$project_dir/infra-usage.mjs" "$contents_dir/Resources/infra-usage.mjs"
 cp "$project_dir/deepseek-usage.mjs" "$contents_dir/Resources/deepseek-usage.mjs"
 cp "$project_dir/devin-usage.mjs" "$contents_dir/Resources/devin-usage.mjs"
+cp "$project_dir/windsurf-usage.mjs" "$contents_dir/Resources/windsurf-usage.mjs"
 cp "$project_dir/usage-pie.settings.json" "$contents_dir/Resources/usage-pie.settings.json"
 cp "$project_dir/infra.settings.json" "$contents_dir/Resources/infra.settings.json"
 cp "$project_dir/deepseek.settings.json" "$contents_dir/Resources/deepseek.settings.json"
 cp "$project_dir/devin.settings.json" "$contents_dir/Resources/devin.settings.json"
+cp "$project_dir/windsurf.settings.json" "$contents_dir/Resources/windsurf.settings.json"
 
 codesign --force --deep --sign - "$app_dir"
 

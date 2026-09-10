@@ -9,6 +9,7 @@ private enum UsageSource: String, CaseIterable {
     case infra
     case deepseek
     case devin
+    case windsurf
 
     var displayName: String {
         switch self {
@@ -16,6 +17,7 @@ private enum UsageSource: String, CaseIterable {
         case .infra: return "Infra"
         case .deepseek: return "DeepSeek"
         case .devin: return "Devin"
+        case .windsurf: return "Windsurf"
         }
     }
 
@@ -25,6 +27,7 @@ private enum UsageSource: String, CaseIterable {
         case .infra: return "infra-usage.mjs"
         case .deepseek: return "deepseek-usage.mjs"
         case .devin: return "devin-usage.mjs"
+        case .windsurf: return "windsurf-usage.mjs"
         }
     }
 
@@ -34,6 +37,7 @@ private enum UsageSource: String, CaseIterable {
         case .infra: return "infra.settings.json"
         case .deepseek: return "deepseek.settings.json"
         case .devin: return "devin.settings.json"
+        case .windsurf: return "windsurf.settings.json"
         }
     }
 
@@ -43,6 +47,7 @@ private enum UsageSource: String, CaseIterable {
         case .infra: return "INFRA_USAGE_SETTINGS"
         case .deepseek: return "DEEPSEEK_USAGE_SETTINGS"
         case .devin: return "DEVIN_USAGE_SETTINGS"
+        case .windsurf: return "WINDSURF_USAGE_SETTINGS"
         }
     }
 
@@ -52,6 +57,7 @@ private enum UsageSource: String, CaseIterable {
         case .infra: return "INFRA_USAGE_SCRIPT"
         case .deepseek: return "DEEPSEEK_USAGE_SCRIPT"
         case .devin: return "DEVIN_USAGE_SCRIPT"
+        case .windsurf: return "WINDSURF_USAGE_SCRIPT"
         }
     }
 
@@ -61,6 +67,7 @@ private enum UsageSource: String, CaseIterable {
         case .infra: return "Infra Billing"
         case .deepseek: return "DeepSeek Top Up"
         case .devin: return "Devin Billing"
+        case .windsurf: return "Windsurf Usage"
         }
     }
 
@@ -70,6 +77,7 @@ private enum UsageSource: String, CaseIterable {
         case .infra: return URL(string: "https://deepinfra.com/dash/billing")!
         case .deepseek: return URL(string: "https://platform.deepseek.com/top_up")!
         case .devin: return URL(string: "https://devin.ai/settings/billing")!
+        case .windsurf: return URL(string: "https://windsurf.com/subscription/usage")!
         }
     }
 }
@@ -752,6 +760,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         case .infra: fallbackDays = 30
         case .deepseek: fallbackDays = 1
         case .devin: fallbackDays = 30
+        case .windsurf: fallbackDays = 7
         }
         pieView.snapshot = snapshot ?? UsageSnapshot(sourceName: currentSource.displayName,
                                                      usedPercent: 0, remainingPercent: 100,
@@ -803,6 +812,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
            let orgId = keychainPassword(service: "devin-org-id") {
             environment["DEVIN_ORG_ID"] = orgId
         }
+        if currentSource == .windsurf, environment["WINDSURF_SESSION_TOKEN"] == nil,
+           let token = keychainPassword(service: "windsurf-session-token") {
+            environment["WINDSURF_SESSION_TOKEN"] = token
+        }
+        if currentSource == .windsurf, environment["WINDSURF_AUTH1_TOKEN"] == nil,
+           let token = keychainPassword(service: "windsurf-auth1-token") {
+            environment["WINDSURF_AUTH1_TOKEN"] = token
+        }
+        if currentSource == .windsurf, environment["WINDSURF_ACCOUNT_ID"] == nil,
+           let token = keychainPassword(service: "windsurf-account-id") {
+            environment["WINDSURF_ACCOUNT_ID"] = token
+        }
+        if currentSource == .windsurf, environment["WINDSURF_PRIMARY_ORG_ID"] == nil,
+           let token = keychainPassword(service: "windsurf-primary-org-id") {
+            environment["WINDSURF_PRIMARY_ORG_ID"] = token
+        }
         process.environment = environment
 
         let output = Pipe()
@@ -829,6 +854,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         if currentSource == .devin {
             return devinSnapshot(from: json)
+        }
+        if currentSource == .windsurf {
+            return windsurfSnapshot(from: json)
         }
 
         guard
@@ -986,6 +1014,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              checkedAt: checkedAt)
     }
 
+    private func windsurfSnapshot(from json: [String: Any]) -> UsageSnapshot? {
+        guard let weeklyRemaining = json["weeklyRemaining"] as? Double else { return nil }
+        let extraBalance = json["extraBalance"] as? Double ?? 0
+        let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
+        let weeklyResetAt = (json["weeklyResetAt"] as? String).flatMap(parseISO8601)
+        
+        let usedPercent = max(0, 100 - weeklyRemaining)
+        let remainingPercent = weeklyRemaining
+        
+        let currency = NumberFormatter()
+        currency.numberStyle = .currency
+        currency.currencyCode = "USD"
+        currency.maximumFractionDigits = 2
+        let balanceText = currency.string(from: NSNumber(value: extraBalance)) ?? String(format: "$%.2f", extraBalance)
+        
+        let resetText = weeklyResetAt.map {
+            formattedReset($0, relativeTo: checkedAt, windowSeconds: 7 * 24 * 3600, reportedResetAt: weeklyResetAt)
+        } ?? "Weekly reset unknown"
+
+        return UsageSnapshot(sourceName: currentSource.displayName,
+                             usedPercent: usedPercent, remainingPercent: remainingPercent,
+                             dayCount: 7, elapsedWindowFraction: 0,
+                             windowDuration: "7 day window",
+                             centerCaption: "\(Int(weeklyRemaining.rounded()))% weekly",
+                             resetAvailabilityText: nil,
+                             resetText: "\(balanceText) · \(resetText)",
+                             resetAt: weeklyResetAt,
+                             innerWindow: nil,
+                             checkedAt: checkedAt)
+    }
+
     private func parseISO8601(_ value: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1086,6 +1145,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     case .infra: defaultFill = "#B9E6C8"
                     case .deepseek: defaultFill = "#9FC5FF"
                     case .devin: defaultFill = "#C1E9F2"
+                    case .windsurf: defaultFill = "#FFB6C1"
                     }
                     let topUpBalance = currentSource == .deepseek ? ",\n  \"topUpBalance\": 0.00" : ""
                     let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"\(defaultFill)\"\(topUpBalance)\n}\n"
