@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-const token = process.env.DEVIN_API_KEY;
-if (!token) fail("DEVIN_API_KEY is not set.");
+const token = process.env.DEVIN_PAT || process.env.DEVIN_API_KEY;
+if (!token) fail("DEVIN_PAT or DEVIN_API_KEY is not set.");
 
 const configuredBase = process.env.DEVIN_BASE_URL || "https://api.devin.ai";
 let origin;
