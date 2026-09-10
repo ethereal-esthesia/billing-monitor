@@ -109,7 +109,7 @@ done
 }
 
 # Check if JSON data was provided as argument
-if [ $# -eq 1 ]; then
+if [ $# -gt 0 ]; then
     echo -e "${BLUE}Storing provided JSON data...${NC}"
     store_tokens "$1"
 else
