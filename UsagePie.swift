@@ -795,6 +795,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
            let token = keychainPassword(service: "deepseek-api-key") {
             environment["DEEPSEEK_API_KEY"] = token
         }
+        if currentSource == .devin, environment["DEVIN_API_KEY"] == nil,
+           let token = keychainPassword(service: "devin-api-key") {
+            environment["DEVIN_API_KEY"] = token
+        }
         process.environment = environment
 
         let output = Pipe()
@@ -818,6 +822,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         }
         if currentSource == .deepseek {
             return deepseekSnapshot(from: json)
+        }
+        if currentSource == .devin {
+            return devinSnapshot(from: json)
         }
 
         guard
@@ -950,6 +957,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                              centerCaption: "\(Int(remainingPercent.rounded()))% remaining",
                              resetAvailabilityText: nil,
                              resetText: "\(spentText) used · \(remainingText) remaining",
+                             resetAt: nil,
+                             innerWindow: nil,
+                             checkedAt: checkedAt)
+    }
+
+    private func devinSnapshot(from json: [String: Any]) -> UsageSnapshot? {
+        guard let totalAcus = json["totalAcus"] as? Double else { return nil }
+        let checkedAt = (json["checkedAt"] as? String).flatMap(parseISO8601) ?? Date()
+        let dayCount = 30
+
+        let usedPercent = min(100, totalAcus)
+        let remainingPercent = max(0, 100 - usedPercent)
+
+        return UsageSnapshot(sourceName: currentSource.displayName,
+                             usedPercent: usedPercent, remainingPercent: remainingPercent,
+                             dayCount: dayCount, elapsedWindowFraction: 0,
+                             windowDuration: "30 day period",
+                             centerCaption: "\(Int(totalAcus.rounded())) ACUs used",
+                             resetAvailabilityText: nil,
+                             resetText: "\(Int(totalAcus.rounded())) ACUs · 30 days",
                              resetAt: nil,
                              innerWindow: nil,
                              checkedAt: checkedAt)

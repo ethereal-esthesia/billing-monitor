@@ -17,7 +17,12 @@ const timeout = setTimeout(() => controller.abort(), 15_000);
 
 (async () => {
   try {
-    const response = await fetch(new URL("/billing/usage", origin), {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const timeAfter = Math.floor(thirtyDaysAgo.getTime() / 1000);
+    const timeBefore = Math.floor(now.getTime() / 1000);
+
+    const response = await fetch(new URL(`/v3/enterprise/consumption/daily?time_after=${timeAfter}&time_before=${timeBefore}`, origin), {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
@@ -30,20 +35,19 @@ const timeout = setTimeout(() => controller.abort(), 15_000);
     }
 
     const data = await response.json();
-    const balance = Number(data.balance || data.remaining_balance || 0);
-    const limit = Number(data.limit || data.total_limit || 0);
-    const used = Number(data.used || data.spent || 0);
+    const totalAcus = Number(data.total_acus || 0);
+    const dailyData = data.acus_by_date || [];
 
-    if (!Number.isFinite(balance) || balance < 0) {
-      fail("Devin returned an invalid account balance.");
+    if (!Number.isFinite(totalAcus) || totalAcus < 0) {
+      fail("Devin returned an invalid ACU consumption data.");
     }
 
     process.stdout.write(`${JSON.stringify({
       checkedAt: new Date().toISOString(),
-      balance,
-      limit: Number.isFinite(limit) && limit > 0 ? limit : null,
-      used: Number.isFinite(used) && used > 0 ? used : null,
-      currency: "USD",
+      totalAcus,
+      dailyData,
+      periodStart: thirtyDaysAgo.toISOString(),
+      periodEnd: now.toISOString(),
     }, null, 2)}\n`);
   } catch (error) {
     fail(error.name === "AbortError" ? "Timed out while reading Devin usage." : error.message);
