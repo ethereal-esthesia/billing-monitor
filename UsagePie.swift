@@ -8,12 +8,14 @@ private enum UsageSource: String, CaseIterable {
     case codex
     case infra
     case deepseek
+    case devin
 
     var displayName: String {
         switch self {
         case .codex: return "Codex"
         case .infra: return "Infra"
         case .deepseek: return "DeepSeek"
+        case .devin: return "Devin"
         }
     }
 
@@ -22,6 +24,7 @@ private enum UsageSource: String, CaseIterable {
         case .codex: return "codex-usage.mjs"
         case .infra: return "infra-usage.mjs"
         case .deepseek: return "deepseek-usage.mjs"
+        case .devin: return "devin-usage.mjs"
         }
     }
 
@@ -30,6 +33,7 @@ private enum UsageSource: String, CaseIterable {
         case .codex: return "usage-pie.settings.json"
         case .infra: return "infra.settings.json"
         case .deepseek: return "deepseek.settings.json"
+        case .devin: return "devin.settings.json"
         }
     }
 
@@ -38,6 +42,7 @@ private enum UsageSource: String, CaseIterable {
         case .codex: return "USAGE_PIE_SETTINGS"
         case .infra: return "INFRA_USAGE_SETTINGS"
         case .deepseek: return "DEEPSEEK_USAGE_SETTINGS"
+        case .devin: return "DEVIN_USAGE_SETTINGS"
         }
     }
 
@@ -46,6 +51,7 @@ private enum UsageSource: String, CaseIterable {
         case .codex: return "CODEX_USAGE_SCRIPT"
         case .infra: return "INFRA_USAGE_SCRIPT"
         case .deepseek: return "DEEPSEEK_USAGE_SCRIPT"
+        case .devin: return "DEVIN_USAGE_SCRIPT"
         }
     }
 
@@ -54,6 +60,7 @@ private enum UsageSource: String, CaseIterable {
         case .codex: return "Codex Billing"
         case .infra: return "Infra Billing"
         case .deepseek: return "DeepSeek Top Up"
+        case .devin: return "Devin Billing"
         }
     }
 
@@ -62,6 +69,7 @@ private enum UsageSource: String, CaseIterable {
         case .codex: return URL(string: "https://chatgpt.com/#settings/Subscription")!
         case .infra: return URL(string: "https://deepinfra.com/dash/billing")!
         case .deepseek: return URL(string: "https://platform.deepseek.com/top_up")!
+        case .devin: return URL(string: "https://devin.ai/settings/billing")!
         }
     }
 }
