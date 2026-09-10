@@ -751,6 +751,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         case .codex: fallbackDays = 7
         case .infra: fallbackDays = 30
         case .deepseek: fallbackDays = 1
+        case .devin: fallbackDays = 30
         }
         pieView.snapshot = snapshot ?? UsageSnapshot(sourceName: currentSource.displayName,
                                                      usedPercent: 0, remainingPercent: 100,
@@ -1053,6 +1054,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                     case .codex: defaultFill = "#C1E9F2"
                     case .infra: defaultFill = "#B9E6C8"
                     case .deepseek: defaultFill = "#9FC5FF"
+                    case .devin: defaultFill = "#C1E9F2"
                     }
                     let topUpBalance = currentSource == .deepseek ? ",\n  \"topUpBalance\": 0.00" : ""
                     let defaults = "{\n  \"opacity\": 0.30,\n  \"pollIntervalSeconds\": 300,\n  \"fillColor\": \"\(defaultFill)\"\(topUpBalance)\n}\n"
